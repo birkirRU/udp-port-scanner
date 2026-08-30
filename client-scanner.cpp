@@ -99,7 +99,6 @@ int main (int argc, const char* argv[]) {
 	// is 1500 bytes, we use 2KiB.
 
 
-
 	struct timeval tv;
 	tv.tv_sec = 2;    // seconds
 	tv.tv_usec = 0;   // microseconds
@@ -118,7 +117,7 @@ int main (int argc, const char* argv[]) {
 	// Returns number of bytes received, or -1 on error.
 	// There is a bug here, we need to find it.
 	// TODO: Prevent buffer overflow on recieving mesege. 
-	// TODO: utalize flags and sockets option in order to timeout if nothing is being recieved.
+	// TODO -> DONE: utalize flags and sockets option in order to timeout if nothing is being recieved. 
 	if ((ret = recvfrom(sockfd, buffer, sizeof(buffer), 0,
             (struct sockaddr*) &srcaddr, &srcaddrlen)) < 0) {
 		if (errno == EAGAIN || errno == EWOULDBLOCK) {
