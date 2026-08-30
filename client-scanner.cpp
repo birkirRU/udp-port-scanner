@@ -7,6 +7,7 @@
 #include <climits>        // UINT_MAX
 #include <string>
 #include <iostream>
+#include <sys/time.h>   // struct timeval
 
 // Parses a C-string as a port number (0-65535).
 // Exits with an error message if the string isn't a valid unsigned integer,
@@ -97,6 +98,21 @@ int main (int argc, const char* argv[]) {
 	// Maximum Transmission Unit (max data size sent in a single physical network packet)
 	// is 1500 bytes, we use 2KiB.
 
+
+
+	struct timeval tv;
+	tv.tv_sec = 2;    // seconds
+	tv.tv_usec = 0;   // microseconds
+
+
+	// Apply the receive timeout (SO_RCVTIMEO) to the socket configuration.
+	// This prevents blocking receive functions (like recv/recvfrom) from hanging forever.
+	if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+		perror("Error setting SO_RCVTIMEO");
+		exit(1);
+	}
+
+	
 	// recvfrom(2): reads a datagram, optionally capturing the sender's address.
 	// Args: socket fd, buffer, buffer length, flags, source address (out), address length (in/out).
 	// Returns number of bytes received, or -1 on error.
