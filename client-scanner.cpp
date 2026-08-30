@@ -120,8 +120,12 @@ int main (int argc, const char* argv[]) {
 	// TODO: Prevent buffer overflow on recieving mesege. 
 	// TODO: utalize flags and sockets option in order to timeout if nothing is being recieved.
 	if ((ret = recvfrom(sockfd, buffer, sizeof(buffer), 0,
-				(struct sockaddr*) &srcaddr, &srcaddrlen)) < 0) {
-		perror("Error recieving");
+            (struct sockaddr*) &srcaddr, &srcaddrlen)) < 0) {
+		if (errno == EAGAIN || errno == EWOULDBLOCK) {
+			std::cerr << "timeout: no response" << std::endl;
+		} else {
+			perror("Error recieving");
+		}
 		exit(1);
 	}
 	std::cout << "received: " << buffer << std::endl;
