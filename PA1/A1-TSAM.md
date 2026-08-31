@@ -8,7 +8,7 @@
 
 sudo tcpdump −vAX −i ens192 ’port 5000’:
 
-Here we have a tcpdump command, used to capture and display network traffic on an interface, run with sudo since capturing raw traffic needs elevated privileges. It's paired with the Options -v for slightly more verbose output (things like TTL, packet length and checksum verification), -A which prints each packet's data in ASCII, and -X which additionally prints it in hex, both handy for reading the actual contents of packets. -i ens192 tells it which interface to listen on, and 'port 5000' filters it down to only traffic on that port, the same one the ncat commands above were using.
+Here we have a tcpdump command used to capture and display network traffic on an interface. ran with sudo since capturing raw traffic needs elevated privileges. It is paired with the Options -v for slightly more verbose output. -A which prints each packet's data in ASCII and -X which additionally prints it in hex. -i ens192 tells it which interface to listen on and 'port 5000' filters it down to only traffic on that port.
 
 ncat −ln 5000:
 
