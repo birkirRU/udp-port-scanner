@@ -34,7 +34,7 @@ unsigned int parse_port(const char* str, const char* label) {
 }
 
 int main (int argc, const char* argv[]) {
-	// . / scanner <IP address> <low port> <high port>
+	// . /scanner <IP address> <low port> <high port>
 	if (argc != 4) {
 		std::cerr << "usage: " << argv[0] << " <IP address> <low port> <high port>" << std::endl;
 		exit(1);
@@ -61,15 +61,10 @@ int main (int argc, const char* argv[]) {
 
 	// Payload to send to server.
 	std::string message = "Hello World!";	
-
-	// TODO: iterate over lowport - highport, for each send a payload, wait for recvfrom.
-	//       To do this fast we need parallel.
-
+	
 	// struct sockaddr_in (see ip(7)): IPv4 socket address - family, port, address.
 	struct sockaddr_in d_addr;
 	d_addr.sin_family = AF_INET;
-	// htons(3): host-to-network short - converts port to network byte order (big-endian).
-	d_addr.sin_port = htons(lowport); // htons(port).
 
 	// inet_pton(3): converts IP text ("1.2.3.4") to binary form in d_addr.sin_addr.
 	// Returns 1 on success, 0 on invalid format, -1 on invalid address family.
@@ -77,26 +72,6 @@ int main (int argc, const char* argv[]) {
 		std::cerr << "invalid ip address or address family: " << ipaddr << std::endl;
 		exit(1);
 	}
-
-	// sendto(2): sends a message on a socket, optionally to a specific address (used since
-	// UDP is connectionless, no connect() call was made).
-	// Args: socket fd, buffer, length, flags, destination address, address length.
-	// Returns number of bytes sent, or -1 on error.
-	int ret;
-	if ((ret = sendto(sockfd, message.c_str(), message.size(), 0 /*flags*/,
-					(struct sockaddr*)&d_addr, sizeof(d_addr))) < 0) {
-			perror("Error sending");
-			exit(1);
-	}
-	
-	// Will hold the address of whoever replies to us.
-	struct sockaddr_in srcaddr;
-	// socklen_t must be pre-set to the size of srcaddr; recvfrom() updates it to the
-	// actual size of the address written.
-	socklen_t srcaddrlen = sizeof(srcaddr);
-	char buffer[2024];
-	// Maximum Transmission Unit (max data size sent in a single physical network packet)
-	// is 1500 bytes, we use 2KiB.
 
 
 	struct timeval tv;
@@ -111,22 +86,50 @@ int main (int argc, const char* argv[]) {
 		exit(1);
 	}
 
-	
-	// recvfrom(2): reads a datagram, optionally capturing the sender's address.
-	// Args: socket fd, buffer, buffer length, flags, source address (out), address length (in/out).
-	// Returns number of bytes received, or -1 on error.
-	// There is a bug here, we need to find it.
-	// TODO: Prevent buffer overflow on recieving mesege. 
-	// TODO -> DONE: utalize flags and sockets option in order to timeout if nothing is being recieved. 
-	if ((ret = recvfrom(sockfd, buffer, sizeof(buffer), 0,
-            (struct sockaddr*) &srcaddr, &srcaddrlen)) < 0) {
-		if (errno == EAGAIN || errno == EWOULDBLOCK) {
-			std::cerr << "timeout: no response" << std::endl;
-		} else {
-			perror("Error recieving");
-		}
-		exit(1);
-	}
-	std::cout << "received: " << buffer << std::endl;
 
+	for (unsigned int port = lowport; port <= highport; port++) {
+	// htons(3): host-to-network short - converts port to network byte order (big-endian).	
+		d_addr.sin_port = htons(port);
+
+
+		// sendto(2): sends a message on a socket, optionally to a specific address (used since
+		// UDP is connectionless, no connect() call was made).
+		// Args: socket fd, buffer, length, flags, destination address, address length.
+		// Returns number of bytes sent, or -1 on error.
+		int ret;
+		if ((ret = sendto(sockfd, message.c_str(), message.size(), 0 /*flags*/,
+						(struct sockaddr*)&d_addr, sizeof(d_addr))) < 0) {
+				perror("Error sending");
+				exit(1);
+		}
+		
+		// Will hold the address of whoever replies to us.
+		struct sockaddr_in srcaddr;
+		// socklen_t must be pre-set to the size of srcaddr; recvfrom() updates it to the
+		// actual size of the address written.
+		socklen_t srcaddrlen = sizeof(srcaddr);
+		char buffer[2024];
+		// Maximum Transmission Unit (max data size sent in a single physical network packet)
+		// is 1500 bytes, we use 2KiB.
+
+
+		// recvfrom(2): reads a datagram, optionally capturing the sender's address.
+		// Args: socket fd, buffer, buffer length, flags, source address (out), address length (in/out).
+		// Returns number of bytes received, or -1 on error.
+		// There is a bug here, we need to find it.
+		// TODO: Prevent buffer overflow on recieving mesege. 
+		// TODO -> DONE: utalize flags and sockets option in order to timeout if nothing is being recieved. 
+		if ((ret = recvfrom(sockfd, buffer, sizeof(buffer), 0,
+				(struct sockaddr*) &srcaddr, &srcaddrlen)) < 0) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK) {
+				std::cerr << "timeout: no response " << port << std::endl;
+			} else {
+				perror("Error recieving");
+			}
+			continue;  // Move on to the next port
+		}
+		buffer[ret] = '\0';
+		std::cout << "Port " << port << " is open" << std::endl;
+		std::cout << "received: " << buffer << std::endl;
+	}
 }
