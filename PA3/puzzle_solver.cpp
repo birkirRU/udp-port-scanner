@@ -12,6 +12,13 @@
 std::vector<std::unique_ptr<PortSender>> identify_modules(
     const std::string& ip, const std::vector<int>& ports) {
     // TODO: Remove "delete" keyword, use instead unuiqe pointers.
+   
+    // TODO: change this function to do the following:
+    // TODO: Have this function return (a globaly defined std::array an ordered) (we already know the order) std::array of unuiqe pairs per port; std::pair (solve() function pointer, transition() lambda)
+    // What this does is that it simplifies the run_puzzle_chain function to only a single loop
+    // which connects each "output = solve(input)" with the next ports input "newoutput = solve(transition(output))" via transition lambda.
+    // TODO: find a smart way of deriving a consistant structure of the transition lambda function across the different ports
+    // maybe each derived port sender defines their own transition function?
 
     std::vector<std::unique_ptr<PortSender>> modules;
 

@@ -67,6 +67,8 @@ public:
     // just keep it consistent across modules.
     // TODO: the contents of this function should always run up to the maximum of three times.
     // after PortScanner::recieve() runs, the loop condition to continue is; PortSender::recieve() didn't recieve
+    // Do this with a base function (not overwritable by derived), witch handles the loop brake and continue condition
+    // and expose two other pure virtual functions, handle_input() and handle_output(), (or any other fitting name) for before and after message send and recieve.
     virtual std::string solve(const std::string& input = "") = 0;
 
 protected:
