@@ -11,6 +11,7 @@
 
 std::vector<std::unique_ptr<PortSender>> identify_modules(
     const std::string& ip, const std::vector<int>& ports) {
+    // TODO: Remove "delete" keyword, use instead unuiqe pointers.
 
     std::vector<std::unique_ptr<PortSender>> modules;
 
@@ -57,6 +58,7 @@ std::vector<std::unique_ptr<PortSender>> identify_modules(
 int run_puzzle_chain(const std::string& ip,
                       std::vector<std::unique_ptr<PortSender>>& modules) {
     (void)ip;
+    // TODO: Remove the need for dynamic casting.
 
     SecretPort* secret = nullptr;
     EvilPort* evil = nullptr;

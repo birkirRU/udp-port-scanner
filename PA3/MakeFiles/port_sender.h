@@ -57,6 +57,7 @@ public:
     // Returns true if `response` (as returned by probe()) matches the
     // wording/keywords this module is looking for. Used by
     // puzzle_solver.cpp to map an unknown port -> the right module.
+    // pure virtual function, enforces each port to create their own identify funciton, because each port has there unuiqe way of identifying it.
     virtual bool identify(const std::string& response) const = 0;
 
     // Runs this module's full puzzle exchange. `input` carries whatever
