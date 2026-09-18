@@ -1,113 +1,99 @@
 #include "puzzle_solver.h"
-#include "secret_port.h"
-#include "evil_port.h"
-#include "gaurdian_port.h"
-#include "dragon_port.h"
 
 #include <iostream>
 
-// NOTE: you already have a puzzle_solver.cpp with content -- treat this
-// file as a structural reference to merge in, not a drop-in replacement.
+// NOTE: you already have a puzzle_solver.cpp with content -- treat
+// this file as a structural reference to merge in, not a drop-in
+// replacement.
 
-std::vector<std::unique_ptr<PortSender>> identify_modules(
-    const std::string& ip, const std::vector<int>& ports) {
-    // TODO: Remove "delete" keyword, use instead unuiqe pointers.
-   
-    // TODO: change this function to do the following:
-    // TODO: Have this function return (a globaly defined std::array an ordered) (we already know the order) std::array of unuiqe pairs per port; std::pair (solve() function pointer, transition() lambda)
-    // What this does is that it simplifies the run_puzzle_chain function to only a single loop
-    // which connects each "output = solve(input)" with the next ports input "newoutput = solve(transition(output))" via transition lambda.
-    // TODO: find a smart way of deriving a consistant structure of the transition lambda function across the different ports
-    // maybe each derived port sender defines their own transition function?
+namespace {
 
-    std::vector<std::unique_ptr<PortSender>> modules;
+// Trivial concrete PortSender used only to send the generic probe and
+// read the response text. It isn't itself an identifiable puzzle
+// module, so identify()/solve() are stubbed out and never called.
+class Prober : public PortSender {
+public:
+    using PortSender::PortSender;
+    bool identify(const std::string&) const override { return false; }
+    bool solve(PuzzleSession&) override { return false; }
+};
+
+} // namespace
+
+IdentifiedPorts identify_modules(const std::string& ip, const std::vector<int>& ports) {
+    IdentifiedPorts result;
 
     for (int port : ports) {
-        // Probe with a throwaway instance of each type until one
-        // recognizes the response, since we don't know in advance
-        // which port is which.
-        PortSender* candidates[] = {
-            new SecretPort(ip, port),
-            new EvilPort(ip, port),
-            new GuardianPort(ip, port),
-            new DragonPort(ip, port),
-        };
+        Prober prober(ip, port);
+        if (!prober.open()) {
+            std::cerr << "Port " << port << ": could not open socket, skipping\n";
+            continue;
+        }
+        std::string response = prober.probe();
+        prober.close();
 
-        std::unique_ptr<PortSender> matched;
-        std::string response;
-        bool probed = false;
-
-        for (auto* candidate : candidates) {
-            if (!probed) {
-                if (!candidate->open()) { delete candidate; continue; }
-                response = candidate->probe();
-                probed = true;
-            }
-            if (!matched && candidate->identify(response)) {
-                matched.reset(candidate);
-            } else {
-                delete candidate;
-            }
+        // identify() is pure string matching -- no socket needed --
+        // so a throwaway instance is enough to test each candidate
+        // type against the response we already have.
+        bool matched = false;
+        if (!result.secret && SecretPort(ip, port).identify(response)) {
+            result.secret = std::make_unique<SecretPort>(ip, port);
+            matched = true;
+        } else if (!result.evil && EvilPort(ip, port).identify(response)) {
+            result.evil = std::make_unique<EvilPort>(ip, port);
+            matched = true;
+        } else if (!result.guardian && GuardianPort(ip, port).identify(response)) {
+            result.guardian = std::make_unique<GuardianPort>(ip, port);
+            matched = true;
+        } else if (!result.dragon && DragonPort(ip, port).identify(response)) {
+            result.dragon = std::make_unique<DragonPort>(ip, port);
+            matched = true;
         }
 
         if (matched) {
-            std::cerr << "Port " << port << " identified as a known module\n";
-            modules.push_back(std::move(matched));
+            std::cerr << "Port " << port << " identified\n";
         } else {
             std::cerr << "Port " << port << " did not match any known module "
                       << "(response: " << response << ")\n";
         }
     }
 
-    return modules;
+    return result;
 }
 
-int run_puzzle_chain(const std::string& ip,
-                      std::vector<std::unique_ptr<PortSender>>& modules) {
-    (void)ip;
-    // TODO: Remove the need for dynamic casting.
-
-    SecretPort* secret = nullptr;
-    EvilPort* evil = nullptr;
-    GuardianPort* guardian = nullptr;
-    DragonPort* dragon = nullptr;
-
-    for (auto& m : modules) {
-        if (auto* p = dynamic_cast<SecretPort*>(m.get())) secret = p;
-        else if (auto* p = dynamic_cast<EvilPort*>(m.get())) evil = p;
-        else if (auto* p = dynamic_cast<GuardianPort*>(m.get())) guardian = p;
-        else if (auto* p = dynamic_cast<DragonPort*>(m.get())) dragon = p;
-    }
-
-    if (!secret) {
+int run_puzzle_chain(IdentifiedPorts& ports) {
+    if (!ports.secret) {
         std::cerr << "Missing S.E.C.R.E.T. port, cannot continue\n";
         return 1;
     }
 
-    std::string state = secret->solve();
-    if (state.empty()) {
+    PuzzleSession session;
+
+    if (!ports.secret->solve(session)) {
         std::cerr << "S.E.C.R.E.T. handshake failed\n";
         return 1;
     }
-    std::cerr << "S.E.C.R.E.T. state: " << state << "\n";
+    std::cerr << "S.E.C.R.E.T. done: group_id=" << static_cast<int>(session.group_id)
+               << " sigil=" << session.sigil << "\n";
 
-    if (evil) {
-        state = evil->solve(state);
-        std::cerr << "Evil state: " << state << "\n";
+    if (ports.evil) {
+        if (!ports.evil->solve(session)) {
+            std::cerr << "Evil port failed, continuing without it\n";
+        }
     }
 
-    if (guardian) {
-        state = guardian->solve(state);
-        std::cerr << "Guardian state: " << state << "\n";
+    if (ports.guardian) {
+        if (!ports.guardian->solve(session)) {
+            std::cerr << "Guardian port failed, continuing without it\n";
+        }
     }
 
-    if (dragon) {
-        // TODO: state must be reshaped into
-        // "<group_id>,<sigil>,<secret_port_1>,<secret_port_2>,<phrase>"
-        // before reaching here, once Evil/Guardian's output format is
-        // finalized -- see dragon_port.cpp for the expected encoding.
-        state = dragon->solve(state);
-        std::cerr << "D.R.A.G.O.N. final response: " << state << "\n";
+    if (ports.dragon) {
+        if (!ports.dragon->solve(session)) {
+            std::cerr << "D.R.A.G.O.N. failed\n";
+            return 1;
+        }
+        std::cerr << "D.R.A.G.O.N. sequence complete\n";
     }
 
     return 0;
@@ -126,11 +112,14 @@ int main(int argc, char* argv[]) {
         ports.push_back(std::stoi(argv[i]));
     }
 
-    auto modules = identify_modules(ip, ports);
-    if (modules.size() != 4) {
-        std::cerr << "Warning: only identified " << modules.size()
+    auto identified = identify_modules(ip, ports);
+
+    int found = (identified.secret ? 1 : 0) + (identified.evil ? 1 : 0) +
+                (identified.guardian ? 1 : 0) + (identified.dragon ? 1 : 0);
+    if (found != 4) {
+        std::cerr << "Warning: only identified " << found
                   << "/4 ports -- continuing anyway\n";
     }
 
-    return run_puzzle_chain(ip, modules);
+    return run_puzzle_chain(identified);
 }

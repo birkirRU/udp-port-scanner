@@ -8,51 +8,53 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-// TODO: change parameter names such that they are prescriptive of what they are refering to
-// e.g. "port" should be "recieving_port" and "ip" should be "recieving_ip"
-PortSender::PortSender(const std::string& ip, int port)
-    : ip_(ip), port_(port) {}
+PortSender::PortSender(const std::string& remote_ip, int remote_port)
+    : remote_ip_(remote_ip), remote_port_(remote_port) {}
 
 PortSender::~PortSender() {
     close();
 }
 
-
-// TODO: have three new parameters "domain", "type", "protocal" parameter triple into socket()
-// Allows for different socket creation, for example raw sockets (helpful for Gaurdain port that most likely needs raw port).
-bool PortSender::open() {
-    
+bool PortSender::open(int domain, int type, int protocol) {
     if (is_open()) return true;
 
-    sockfd_ = socket(AF_INET, SOCK_DGRAM, 0);
-    // Raw socket example
-    // int rawsock = socket(AF_INET , SOCK_RAW , IPPROTO_RAW )
+    sockfd_ = socket(domain, type, protocol);
     if (sockfd_ < 0) {
-        perror("Error creating host socket");
+        perror("socket");
         return false;
     }
 
+    if (domain == AF_INET6) {
+        sockaddr_in6 addr{};
+        addr.sin6_family = AF_INET6;
+        addr.sin6_port = htons(static_cast<uint16_t>(remote_port_));
+        if (inet_pton(AF_INET6, remote_ip_.c_str(), &addr.sin6_addr) != 1) {
+            std::cerr << "Invalid IPv6 address: " << remote_ip_ << "\n";
+            close();
+            return false;
+        }
+        if (connect(sockfd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+            perror("connect (ipv6)");
+            close();
+            return false;
+        }
+        return true;
+    }
+
+    // Default path: IPv4.
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(static_cast<uint16_t>(port_));
-
-	// inet_pton(3): converts IP text ("1.2.3.4") to binary form in d_addr.sin_addr.
-	// Returns 1 on success, 0 on invalid format, -1 on invalid address family.
-    if (inet_pton(AF_INET, ip_.c_str(), &addr.sin_addr) != 1) {
-        // USE std::endl
-        std::cerr << "Invalid IP address: " << ip_ << "\n";
+    addr.sin_port = htons(static_cast<uint16_t>(remote_port_));
+    if (inet_pton(AF_INET, remote_ip_.c_str(), &addr.sin_addr) != 1) {
+        std::cerr << "Invalid IPv4 address: " << remote_ip_ << "\n";
         close();
         return false;
     }
-
-    // enforces a single socket is associated with a single address. 1:1.
-    // using it here elimenates the need for sendto() on udp/raw sockets.
     if (connect(sockfd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
-        perror("Association of host socket and recieiving socket failed");
+        perror("connect");
         close();
         return false;
     }
-
     return true;
 }
 
@@ -62,7 +64,6 @@ void PortSender::close() {
         sockfd_ = -1;
     }
 }
-
 
 bool PortSender::send(const std::vector<uint8_t>& data) {
     if (!is_open() && !open()) return false;
@@ -92,12 +93,36 @@ std::vector<uint8_t> PortSender::receive(int timeout_ms) {
     return result;
 }
 
+std::vector<uint8_t> PortSender::send_and_receive(const std::vector<uint8_t>& msg,
+                                                   int max_attempts,
+                                                   int timeout_ms) {
+    for (int attempt = 1; attempt <= max_attempts; ++attempt) {
+        if (!send(msg)) {
+            std::cerr << "send_and_receive: send failed on attempt "
+                      << attempt << "/" << max_attempts << "\n";
+            continue;
+        }
+        auto reply = receive(timeout_ms);
+        if (!reply.empty()) return reply;
+        std::cerr << "send_and_receive: no reply on attempt "
+                  << attempt << "/" << max_attempts
+                  << " (port " << remote_port_ << "), retrying\n";
+    }
+    return {};
+}
+
+std::vector<uint8_t> PortSender::send_and_receive(const std::string& msg,
+                                                   int max_attempts,
+                                                   int timeout_ms) {
+    return send_and_receive(std::vector<uint8_t>(msg.begin(), msg.end()),
+                             max_attempts, timeout_ms);
+}
+
 std::string PortSender::probe() {
     // Every puzzle port expects a message >= 6 characters long before
     // it hands out instructions. Plain spaces are a safe, content-free
     // default; override in a derived class if a module needs something
     // more specific to trigger its response.
-    if (!send(std::string("      "))) return "";
-    auto bytes = receive();
+    auto bytes = send_and_receive(std::string("      "));
     return std::string(bytes.begin(), bytes.end());
 }
