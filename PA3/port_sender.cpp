@@ -63,6 +63,7 @@ void PortSender::close() {
     }
 }
 
+
 bool PortSender::send(const std::vector<uint8_t>& data) {
     if (!is_open() && !open()) return false;
     ssize_t sent = ::send(sockfd_, data.data(), data.size(), 0);

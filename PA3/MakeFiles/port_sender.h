@@ -64,6 +64,8 @@ public:
     // return value is passed on to later modules by puzzle_solver.cpp.
     // The exact encoding of input/output strings is up to the group,
     // just keep it consistent across modules.
+    // TODO: the contents of this function should always run up to the maximum of three times.
+    // after PortScanner::recieve() runs, the loop condition to continue is; PortSender::recieve() didn't recieve
     virtual std::string solve(const std::string& input = "") = 0;
 
 protected:
