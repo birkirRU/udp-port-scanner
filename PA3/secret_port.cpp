@@ -2,9 +2,7 @@
 
 #include <arpa/inet.h>
 #include <cstring>
-#include <sstream>
 #include <iostream>
-#include <iomanip>
 
 const std::vector<std::string> SecretPort::kMemberNames = {
     "birkirsa24",
@@ -18,64 +16,48 @@ bool SecretPort::identify(const std::string& response) const {
     return response.find("Sacred Elder Cipher Relay") != std::string::npos; 
 }
 
-std::string SecretPort::solve(const std::string& /*input*/) {
-    if (!is_open() && !open()) return "";
+bool SecretPort::solve(PuzzleSession& session) {
+    if (!is_open() && !open()) return false;
 
-    // TODO: pick your own secret number (any 32-bit value works).
     uint32_t secret_number = 0x42569243;
-
-    // Step 2: build "S.E.C.R.E.T.:name1,name2,...," + secret_number as
-    // the final 4 raw bytes (network byte order).
-    std::ostringstream oss;
-    oss << "S.E.C.R.E.T.:";
-    for (size_t i = 0; i < kMemberNames.size(); ++i) {
-        if (i) oss << ", ";
-        oss << kMemberNames[i];
-    }
-    std::string header = oss.str();
-
-    std::vector<uint8_t> msg(header.begin(), header.end());
     uint32_t secret_be = htonl(secret_number);
     uint8_t secret_bytes[4];
     std::memcpy(secret_bytes, &secret_be, 4);
+
+    // Step 2: "S.E.C.R.E.T.:name1,name2," + secret number as the last 4 bytes
+    std::string header = "S.E.C.R.E.T.:";
+    for (const auto& name : kMemberNames) header += name + ",";
+    std::vector<uint8_t> msg(header.begin(), header.end());
     msg.insert(msg.end(), secret_bytes, secret_bytes + 4);
 
-    if (!send(msg)) {
-        std::cerr << "SecretPort: failed to send step 2 message\n";
-        return "";
-    }
-
-    // Step 3: expect a 5-byte reply: [group_id][4-byte challenge].
-    auto reply = receive();
+    // Step 3: reply is [group_id][4-byte challenge]
+    auto reply = send_and_receive(msg);
     if (reply.size() != 5) {
         std::cerr << "SecretPort: unexpected reply size " << reply.size() << "\n";
-        return "";
-    }
-    group_id_ = reply[0];
-    for (int i = 0; i < 4; ++i) {
-        sigil_[i] = reply[1 + i] ^ secret_bytes[i];
+        return false;
     }
 
-    // Step 5: send 5 bytes: [group_id][4-byte sigil].
-    std::vector<uint8_t> knock;
-    knock.push_back(group_id_);
-    knock.insert(knock.end(), sigil_.begin(), sigil_.end());
+    // Step 4: sigil = challenge XOR secret, byte by byte
+    uint8_t group_id = reply[0];
+    uint8_t sigil_bytes[4];
+    for (int i = 0; i < 4; ++i) sigil_bytes[i] = reply[1 + i] ^ secret_bytes[i];
 
-    if (!send(knock)) {
-        std::cerr << "SecretPort: failed to send step 5 knock\n";
-        return "";
+    // Step 5: send [group_id][sigil], read the revealed secret
+    std::vector<uint8_t> knock{group_id, sigil_bytes[0], sigil_bytes[1],
+    sigil_bytes[2], sigil_bytes[3]};
+    auto secret_reply = send_and_receive(knock);
+    if (secret_reply.empty()) {
+        std::cerr << "SecretPort: no secret revealed (timeout or sigil rejected)\n";
+        return false;
     }
+    secret_text_.assign(secret_reply.begin(), secret_reply.end());
+    std::cerr << "SecretPort revealed: " << secret_text_ << "\n";
 
-    // Step 6: read the revealed secret (informational / for the README).
-    auto secret_reply = receive();
-    std::string secret_text(secret_reply.begin(), secret_reply.end());
-    std::cerr << "SecretPort revealed: " << secret_text << "\n";
-
-    std::ostringstream out;
-    out << static_cast<int>(group_id_) << ",";
-    for (uint8_t byte : sigil_) {
-        out << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(byte);
-    }
-    return out.str();
-
+    // Only publish to the session once everything succeeded.
+    uint32_t sigil_be;
+    std::memcpy(&sigil_be, sigil_bytes, 4);
+    session.group_id = group_id;
+    session.sigil = ntohl(sigil_be);
+    session.secret_done = true;
+    return true;
 }
