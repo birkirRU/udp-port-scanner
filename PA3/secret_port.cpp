@@ -4,32 +4,32 @@
 #include <cstring>
 #include <sstream>
 #include <iostream>
+#include <iomanip>
 
 const std::vector<std::string> SecretPort::kMemberNames = {
-    // TODO: fill in with your group's names as registered by the institution
-    "Member One",
-    "Member Two",
+    "birkirsa24",
+    "bjornth24",
 };
 
 SecretPort::SecretPort(const std::string& ip, int port)
     : PortSender(ip, port) {}
 
 bool SecretPort::identify(const std::string& response) const {
-    return response.find("S.E.C.R.E.T.") != std::string::npos;
+    return response.find("Sacred Elder Cipher Relay") != std::string::npos; 
 }
 
 std::string SecretPort::solve(const std::string& /*input*/) {
     if (!is_open() && !open()) return "";
 
     // TODO: pick your own secret number (any 32-bit value works).
-    uint32_t secret_number = 0x12345678;
+    uint32_t secret_number = 0x42569243;
 
     // Step 2: build "S.E.C.R.E.T.:name1,name2,...," + secret_number as
     // the final 4 raw bytes (network byte order).
     std::ostringstream oss;
     oss << "S.E.C.R.E.T.:";
     for (size_t i = 0; i < kMemberNames.size(); ++i) {
-        if (i) oss << ",";
+        if (i) oss << ", ";
         oss << kMemberNames[i];
     }
     std::string header = oss.str();
@@ -52,20 +52,14 @@ std::string SecretPort::solve(const std::string& /*input*/) {
         return "";
     }
     group_id_ = reply[0];
-    uint32_t challenge_be;
-    std::memcpy(&challenge_be, reply.data() + 1, 4);
-    uint32_t challenge = ntohl(challenge_be);
-
-    // Step 4: sigil = challenge XOR secret_number.
-    sigil_ = challenge ^ secret_number;
+    for (int i = 0; i < 4; ++i) {
+        sigil_[i] = reply[1 + i] ^ secret_bytes[i];
+    }
 
     // Step 5: send 5 bytes: [group_id][4-byte sigil].
     std::vector<uint8_t> knock;
     knock.push_back(group_id_);
-    uint32_t sigil_be = htonl(sigil_);
-    uint8_t sigil_bytes[4];
-    std::memcpy(sigil_bytes, &sigil_be, 4);
-    knock.insert(knock.end(), sigil_bytes, sigil_bytes + 4);
+    knock.insert(knock.end(), sigil_.begin(), sigil_.end());
 
     if (!send(knock)) {
         std::cerr << "SecretPort: failed to send step 5 knock\n";
@@ -78,6 +72,10 @@ std::string SecretPort::solve(const std::string& /*input*/) {
     std::cerr << "SecretPort revealed: " << secret_text << "\n";
 
     std::ostringstream out;
-    out << static_cast<int>(group_id_) << "," << sigil_;
+    out << static_cast<int>(group_id_) << ",";
+    for (uint8_t byte : sigil_) {
+        out << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(byte);
+    }
     return out.str();
+
 }
