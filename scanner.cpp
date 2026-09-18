@@ -76,7 +76,7 @@ int main (int argc, const char* argv[]) {
 
 	struct timeval tv;
 	tv.tv_sec = 0;    // seconds
-	tv.tv_usec = 500000;   // microseconds -> 500ms
+	tv.tv_usec = 9000;   // microseconds -> 500ms
 
 
 	// Apply the receive timeout (SO_RCVTIMEO) to the socket configuration.
@@ -123,16 +123,20 @@ int main (int argc, const char* argv[]) {
 			if ((ret = recvfrom(sockfd, buffer, sizeof(buffer), 0,
 					(struct sockaddr*) &srcaddr, &srcaddrlen)) < 0) {
 				if (errno == EAGAIN || errno == EWOULDBLOCK) {
-					std::cerr << "timeout: no response " << port << std::endl;
+					continue;
+					// std::cerr << "timeout: no response " << port << std::endl;
 				} else {
 					perror("Error recieving");
 				}
 				continue;  // Move on to the next port
 			}
 			buffer[ret] = '\0';
-			std::cout << "Port " << port << " is open" << std::endl;
+			std::cout << "Port " << port << " is open" << std::endl << std::endl;
+
 			std::cout << "received: " << buffer << std::endl;
+			goto next_port;
 		}
+		next_port:;
 
 	}
 }

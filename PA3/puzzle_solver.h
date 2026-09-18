@@ -5,7 +5,7 @@
 #include "port_sender.h"
 #include "secret_port.h"
 #include "evil_port.h"
-#include "gaurdian_port.h"
+#include "guardian_port.h"
 #include "dragon_port.h"
 
 // Result of probing the 4 given ports and matching each to a known
@@ -14,9 +14,9 @@
 // dynamic_cast to get back to the concrete type it needs.
 struct IdentifiedPorts {
     std::unique_ptr<SecretPort> secret;
-    // std::unique_ptr<EvilPort> evil;
-    // std::unique_ptr<GuardianPort> guardian;
-    // std::unique_ptr<DragonPort> dragon;
+    std::unique_ptr<EvilPort> evil;
+    std::unique_ptr<GuardianPort> guardian;
+    std::unique_ptr<DragonPort> dragon;
 };
 
 // Probes each port in `ports` and matches it to whichever module type
