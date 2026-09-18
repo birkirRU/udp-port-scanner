@@ -1,142 +1,127 @@
-#include <sys/socket.h>   // socket(), sendto(), recvfrom(), struct sockaddr
-#include <stdio.h>        // perror()
-#include <netinet/in.h>   // struct sockaddr_in, htons()
-#include <arpa/inet.h>    // inet_pton()
-#include <cstdlib>        // strtoul(), exit()
-#include <cerrno>         // errno
-#include <climits>        // UINT_MAX
-#include <string>
+#include "puzzle_solver.h"
+#include "secret_port.h"
+#include "evil_port.h"
+#include "gaurdian_port.h"
+#include "dragon_port.h"
+
 #include <iostream>
-#include <sys/time.h>   // struct timeval
 
-// Parses a C-string as a port number (0-65535).
-// Exits with an error message if the string isn't a valid unsigned integer,
-// or falls outside the valid port range.
-unsigned int parse_port(const char* str, const char* label) {
-	// strtoul(3): converts string to unsigned long; 
-	// errors via errno and endptr.
-	char* endptr;
-	unsigned long val = std::strtoul(str, &endptr, 10);
+// NOTE: you already have a puzzle_solver.cpp with content -- treat this
+// file as a structural reference to merge in, not a drop-in replacement.
 
-	// endptr == str: no digits were parsed at all (e.g. "abc").
-	// *endptr != '\0': trailing garbage after the number (e.g. "80abc").
-	if (endptr == str || *endptr != '\0') {
-		std::cerr << label << " is not a valid unsigned integer: " << str << std::endl;
-		exit(1);
-	}
-	// ERANGE: value too large to fit in unsigned long.
-	if (errno == ERANGE || val > 65535) {
-		std::cerr << label << " is out of valid port range (0-65535): " << str << std::endl;
-		exit(1);
-	}
+std::vector<std::unique_ptr<PortSender>> identify_modules(
+    const std::string& ip, const std::vector<int>& ports) {
 
-	return (unsigned int) val;
+    std::vector<std::unique_ptr<PortSender>> modules;
+
+    for (int port : ports) {
+        // Probe with a throwaway instance of each type until one
+        // recognizes the response, since we don't know in advance
+        // which port is which.
+        PortSender* candidates[] = {
+            new SecretPort(ip, port),
+            new EvilPort(ip, port),
+            new GuardianPort(ip, port),
+            new DragonPort(ip, port),
+        };
+
+        std::unique_ptr<PortSender> matched;
+        std::string response;
+        bool probed = false;
+
+        for (auto* candidate : candidates) {
+            if (!probed) {
+                if (!candidate->open()) { delete candidate; continue; }
+                response = candidate->probe();
+                probed = true;
+            }
+            if (!matched && candidate->identify(response)) {
+                matched.reset(candidate);
+            } else {
+                delete candidate;
+            }
+        }
+
+        if (matched) {
+            std::cerr << "Port " << port << " identified as a known module\n";
+            modules.push_back(std::move(matched));
+        } else {
+            std::cerr << "Port " << port << " did not match any known module "
+                      << "(response: " << response << ")\n";
+        }
+    }
+
+    return modules;
 }
 
-int main (int argc, const char* argv[]) {
-	// . /scanner <IP address> <low port> <high port>
-	if (argc != 4) {
-		std::cerr << "usage: " << argv[0] << " <IP address> <low port> <high port>" << std::endl;
-		exit(1);
-	}
+int run_puzzle_chain(const std::string& ip,
+                      std::vector<std::unique_ptr<PortSender>>& modules) {
+    (void)ip;
 
-	const char *ipaddr = argv[1];
+    SecretPort* secret = nullptr;
+    EvilPort* evil = nullptr;
+    GuardianPort* guardian = nullptr;
+    DragonPort* dragon = nullptr;
 
-	unsigned int lowport = parse_port(argv[2], "low port");
-	unsigned int highport = parse_port(argv[3], "high port");
+    for (auto& m : modules) {
+        if (auto* p = dynamic_cast<SecretPort*>(m.get())) secret = p;
+        else if (auto* p = dynamic_cast<EvilPort*>(m.get())) evil = p;
+        else if (auto* p = dynamic_cast<GuardianPort*>(m.get())) guardian = p;
+        else if (auto* p = dynamic_cast<DragonPort*>(m.get())) dragon = p;
+    }
 
-	if (lowport > highport) {
-		std::cerr << "low port (" << lowport << ") cannot be higher than high port (" << highport << ")" << std::endl;
-		exit(1);
-	}
+    if (!secret) {
+        std::cerr << "Missing S.E.C.R.E.T. port, cannot continue\n";
+        return 1;
+    }
 
-	// socket(2): creates an endpoint for communication.
-	// AF_INET = IPv4, SOCK_DGRAM = UDP, 0 = default protocol for this type.
-	// Returns a file descriptor, or -1 on error.
-	int sockfd;
-	if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-		perror("Error creating socket");  // perror(3): prints errno's message to stderr.
-		exit(1);
-	}
+    std::string state = secret->solve();
+    if (state.empty()) {
+        std::cerr << "S.E.C.R.E.T. handshake failed\n";
+        return 1;
+    }
+    std::cerr << "S.E.C.R.E.T. state: " << state << "\n";
 
-	// Payload to send to server.
-	// std::string message = "Hello World!";	
-    std::string message = "S.E.C.R.E.T.:birkirsa24,bjornth24";
-    uint32_t secret = 2189012345; 
-    secret = htonl(secret); // convert to network byte order
-    message.append((char*)&secret, sizeof(secret));	
-	
-	// struct sockaddr_in (see ip(7)): IPv4 socket address - family, port, address.
-	struct sockaddr_in d_addr;
-	d_addr.sin_family = AF_INET;
+    if (evil) {
+        state = evil->solve(state);
+        std::cerr << "Evil state: " << state << "\n";
+    }
 
-	// inet_pton(3): converts IP text ("1.2.3.4") to binary form in d_addr.sin_addr.
-	// Returns 1 on success, 0 on invalid format, -1 on invalid address family.
-	if (inet_pton(AF_INET, ipaddr, &d_addr.sin_addr) < 1) {
-		std::cerr << "invalid ip address or address family: " << ipaddr << std::endl;
-		exit(1);
-	}
+    if (guardian) {
+        state = guardian->solve(state);
+        std::cerr << "Guardian state: " << state << "\n";
+    }
 
+    if (dragon) {
+        // TODO: state must be reshaped into
+        // "<group_id>,<sigil>,<secret_port_1>,<secret_port_2>,<phrase>"
+        // before reaching here, once Evil/Guardian's output format is
+        // finalized -- see dragon_port.cpp for the expected encoding.
+        state = dragon->solve(state);
+        std::cerr << "D.R.A.G.O.N. final response: " << state << "\n";
+    }
 
-	struct timeval tv;
-	tv.tv_sec = 0;    // seconds
-	tv.tv_usec = 500000;   // microseconds -> 500ms
+    return 0;
+}
 
+int main(int argc, char* argv[]) {
+    if (argc != 6) {
+        std::cerr << "Usage: " << argv[0]
+                  << " <IP address> <port1> <port2> <port3> <port4>\n";
+        return 1;
+    }
 
-	// Apply the receive timeout (SO_RCVTIMEO) to the socket configuration.
-	// This prevents blocking receive functions (like recv/recvfrom) from hanging forever.
-	if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
-		perror("Error setting SO_RCVTIMEO");
-		exit(1);
-	}
+    std::string ip = argv[1];
+    std::vector<int> ports;
+    for (int i = 2; i < 6; ++i) {
+        ports.push_back(std::stoi(argv[i]));
+    }
 
+    auto modules = identify_modules(ip, ports);
+    if (modules.size() != 4) {
+        std::cerr << "Warning: only identified " << modules.size()
+                  << "/4 ports -- continuing anyway\n";
+    }
 
-	for (unsigned int port = lowport; port <= highport; port++) {
-	// htons(3): host-to-network short - converts port to network byte order (big-endian).	
-		for (unsigned int i=0; i<3; i++) { // 99.9 % chance of server getting msg when trying 3 times, iff server drops 1/10 of requests.
-			d_addr.sin_port = htons(port);
-	
-	
-			// sendto(2): sends a message on a socket, optionally to a specific address (used since
-			// UDP is connectionless, no connect() call was made).
-			// Args: socket fd, buffer, length, flags, destination address, address length.
-			// Returns number of bytes sent, or -1 on error.
-			int ret;
-			if ((ret = sendto(sockfd, message.c_str(), message.size(), 0 /*flags*/,
-							(struct sockaddr*)&d_addr, sizeof(d_addr))) < 0) {
-					perror("Error sending");
-					exit(1);
-			}
-			
-			// Will hold the address of whoever replies to us.
-			struct sockaddr_in srcaddr;
-			// socklen_t must be pre-set to the size of srcaddr; recvfrom() updates it to the
-			// actual size of the address written.
-			socklen_t srcaddrlen = sizeof(srcaddr);
-			char buffer[2024];
-			// Maximum Transmission Unit (max data size sent in a single physical network packet)
-			// is 1500 bytes, we use 2KiB.
-	
-	
-			// recvfrom(2): reads a datagram, optionally capturing the sender's address.
-			// Args: socket fd, buffer, buffer length, flags, source address (out), address length (in/out).
-			// Returns number of bytes received, or -1 on error.
-			// There is a bug here, we need to find it.
-			// TODO -> DONE: Prevent buffer overflow on recieving mesege. 
-			// TODO -> DONE: utalize flags and sockets option in order to timeout if nothing is being recieved. 
-			if ((ret = recvfrom(sockfd, buffer, sizeof(buffer), 0,
-					(struct sockaddr*) &srcaddr, &srcaddrlen)) < 0) {
-				if (errno == EAGAIN || errno == EWOULDBLOCK) {
-					std::cerr << "timeout: no response " << port << std::endl;
-				} else {
-					perror("Error recieving");
-				}
-				continue;  // Move on to the next port
-			}
-			buffer[ret] = '\0';
-			std::cout << "Port " << port << " is open" << std::endl;
-			std::cout << "received: " << buffer << std::endl;
-		}
-
-	}
+    return run_puzzle_chain(ip, modules);
 }
