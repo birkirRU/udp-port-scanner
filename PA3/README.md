@@ -11,17 +11,18 @@ Requires `g++` with C++17 support.
 make
 ```
 
-builds two programs: `scanner` and `puzzle_solver`.
+builds the program: `puzzle_solver`.
 
 1. Find the four puzzle ports:
    ```
-   ./scanner <IP address> <low port> <high port>
+   sudo nmap -sU -p 4000-4100 130.208.246.98
    ```
 2. Solve the puzzle by giving the four ports in any order. Evil port needs a raw
    socket, so run as root:
    ```
    sudo ./puzzle_solver <IP address> <port1> <port2> <port3> <port4>
    ```
+   Keep in mind that sometimes the server drops requests, and hence Dragon Port will not be able to run. In such cases, run the compiled program until every port gets a chance to solve.
 
 `make clean` removes the binaries.
 

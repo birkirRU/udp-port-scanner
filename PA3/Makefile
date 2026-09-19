@@ -12,7 +12,7 @@ SOURCES = puzzle_solver.cpp \
 HEADERS = port_sender.h puzzle_solver.h secret_port.h evil_port.h \
           guardian_port.h dragon_port.h
 
-all: puzzle_solver scanner
+all: puzzle_solver puzzle_solver_debug
 
 puzzle_solver: $(SOURCES) $(HEADERS)
 	$(CXX) $(CXXFLAGS) $(SOURCES) -o $@
@@ -20,10 +20,7 @@ puzzle_solver: $(SOURCES) $(HEADERS)
 puzzle_solver_debug: $(SOURCES) $(HEADERS)
 	$(CXX) $(CXXFLAGS) $(CXXDEBUGFLAGS) $(SOURCES) -o $@
 
-scanner: scanner.cpp
-	$(CXX) $(CXXFLAGS) scanner.cpp -o $@
-
 clean:
-	rm -f puzzle_solver puzzle_solver_debug scanner
+	rm -f puzzle_solver puzzle_solver_debug
 
 .PHONY: all clean

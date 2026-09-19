@@ -8,7 +8,7 @@ bool DragonPort::identify(const std::string& response) {
 }
 
 // Exchange:
-//   1. Send the two secret ports as ASCII text ("4033,4012"). The reply is
+//   1. Send the two secret ports as ASCII text e.g. ("4033,4012"). The reply is
 //      the ordered list of ports to knock on.
 //   2. Knock on each port with [group_id][sigil] + the Guardian's phrase.
 bool DragonPort::solve(PuzzleSession& session) {
