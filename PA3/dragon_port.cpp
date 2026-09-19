@@ -3,6 +3,17 @@
 #include <arpa/inet.h>
 #include <cstring>
 #include <iostream>
+#include <sstream>
+
+namespace {
+class Knocker : public PortSender {
+public:
+    using PortSender::PortSender;
+    bool identify(const std::string&) const override { return false; }
+    bool solve(PuzzleSession&) override { return false; }
+    std::vector<uint8_t> ask(const std::vector<uint8_t>& m) { return send_and_receive(m, 10); }
+};
+}
 
 DragonPort::DragonPort(const std::string& ip, int port)
     : PortSender(ip, port) {}
@@ -33,10 +44,31 @@ bool DragonPort::solve(PuzzleSession& session) {
     std::string reply_text(reply.begin(), reply.end());
     std::cerr << "DragonPort revealed: " << reply_text << "\n";
 
-    // TODO: this is still just step 1 (handing over the port list).
-    // Once we see what the knock-sequence reply actually looks like,
-    // parse it here and drive the individual knocks against
-    // secret_port_1/secret_port_2 (each knock needs group_id + sigil
-    // + secret_phrase per the banner text).
+    // Parse "4012,4033,..." into an ordered list of ports.
+    std::vector<int> knocks;
+    std::stringstream ss(reply_text);
+    std::string tok;
+    while (std::getline(ss, tok, ',')) knocks.push_back(std::stoi(tok));
+
+    // The guardian's reply wraps the phrase in quotes: take just that part.
+    std::string phrase = session.secret_phrase;
+    size_t a = phrase.find('"'), b = phrase.rfind('"');
+    if (a != std::string::npos && b > a) phrase = phrase.substr(a + 1, b - a - 1);
+
+    // Each knock: [group_id][sigil] + phrase.
+    auto knock_msg = session.identity_bytes();
+    knock_msg.insert(knock_msg.end(), phrase.begin(), phrase.end());
+
+
+    for (int port : knocks) {
+        Knocker knocker(remote_ip(), port);
+        auto r = knocker.ask(knock_msg);
+        if (r.empty()) {
+            std::cerr << "DragonPort: no reply from knock on " << port << "\n";
+            return false;
+        }
+        std::cerr << "Knock " << port << " -> " << std::string(r.begin(), r.end()) << "\n";
+    }
     return true;
+
 }
