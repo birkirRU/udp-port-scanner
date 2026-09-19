@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -Wall -std=c++23
+CXXFLAGS = -Wall -std=c++17
 
 SOURCES = puzzle_solver.cpp \
           port_sender.cpp \

@@ -15,6 +15,7 @@ struct PuzzleSession {
     uint8_t group_id = 0;
     uint32_t sigil = 0;
     bool secret_done = false;
+    int hidden_port = 0;
 
     // -- from EvilPort (fields TBD -- full protocol not known yet) --
     bool evil_done = false;

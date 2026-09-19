@@ -3,6 +3,7 @@
 #include <arpa/inet.h>
 #include <cstring>
 #include <iostream>
+#include <regex>
 
 const std::vector<std::string> SecretPort::kMemberNames = {
     "birkirsa24",
@@ -53,11 +54,25 @@ bool SecretPort::solve(PuzzleSession& session) {
     secret_text_.assign(secret_reply.begin(), secret_reply.end());
     std::cerr << "SecretPort revealed: " << secret_text_ << "\n";
 
+    // hidden port:\s*  -> Matches "hidden port:" and any spaces following it
+    // (\d+)            -> Capture group 1: Matches and stores the port digits (ignoring the "8" earlier)
+    std::regex pattern(R"(hidden port:\s*(\d+))"); 
+    std::smatch match;
+    std::string matched_port;
+
+    if (std::regex_search(secret_text_, match, pattern)) {
+        // match[1] contains only the specific captured digits inside the parentheses ("4033")
+        matched_port = match[1].str();
+    } else {
+        std::cout << "Hidden port format not found." << std::endl;
+    }
+
     // Only publish to the session once everything succeeded.
     uint32_t sigil_be;
     std::memcpy(&sigil_be, sigil_bytes, 4);
     session.group_id = group_id;
     session.sigil = ntohl(sigil_be);
+    session.hidden_port = std::stoi(matched_port);
     session.secret_done = true;
     return true;
 }

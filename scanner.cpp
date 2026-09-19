@@ -76,7 +76,7 @@ int main (int argc, const char* argv[]) {
 
 	struct timeval tv;
 	tv.tv_sec = 0;    // seconds
-	tv.tv_usec = 9000;   // microseconds -> 500ms
+	tv.tv_usec = 50000;   // microseconds -> 500ms
 
 
 	// Apply the receive timeout (SO_RCVTIMEO) to the socket configuration.
@@ -89,7 +89,7 @@ int main (int argc, const char* argv[]) {
 
 	for (unsigned int port = lowport; port <= highport; port++) {
 	// htons(3): host-to-network short - converts port to network byte order (big-endian).	
-		for (unsigned int i=0; i<3; i++) { // 99.9 % chance of server getting msg when trying 3 times, iff server drops 1/10 of requests.
+		// for (unsigned int i=0; i<3; i++) { // 99.9 % chance of server getting msg when trying 3 times, iff server drops 1/10 of requests.
 			d_addr.sin_port = htons(port);
 	
 	
@@ -128,15 +128,16 @@ int main (int argc, const char* argv[]) {
 				} else {
 					perror("Error recieving");
 				}
-				continue;  // Move on to the next port
+				// continue;  // Move on to the next port
 			}
 			buffer[ret] = '\0';
 			std::cout << "Port " << port << " is open" << std::endl << std::endl;
 
 			std::cout << "received: " << buffer << std::endl;
-			goto next_port;
-		}
-		next_port:;
+			// goto next_port;
+		// }
+		// next_port:;
 
 	}
 }
+
