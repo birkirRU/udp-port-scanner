@@ -1,5 +1,6 @@
 #include "guardian_port.h"
 
+#include <algorithm>
 #include <cstring>
 #include <iostream>
 #include <arpa/inet.h>
@@ -145,23 +146,32 @@ bool GuardianPort::solve(PuzzleSession& session) {
     //    53 bytes of application data.
     auto packet = build_packet(flow_field_raw, their_dst, their_src, our_src_port, our_dst_port, payload);
 
-    auto reply_bytes = send_and_receive(packet);
+    std::vector<uint8_t> reply_bytes;
+    constexpr int kMaxReplyAttempts = 3;
+    for (int attempt = 0; attempt < kMaxReplyAttempts; ++attempt) {
+        reply_bytes = send_and_receive(packet);
+        if (reply_bytes.size() < kPayloadOffset || (reply_bytes[0] >> 4) != 6) {
+            continue;
+        }
+
+        std::array<uint8_t, 16> reply_src{}, reply_dst{};
+        std::memcpy(reply_src.data(), reply_bytes.data() + kSrcAddrOffset, 16);
+        std::memcpy(reply_dst.data(), reply_bytes.data() + kDstAddrOffset, 16);
+        if (reply_src == their_src && reply_dst == their_dst) {
+            break;
+        }
+        reply_bytes.clear();
+    }
+
     if (reply_bytes.empty()) {
-        std::cerr << "GuardianPort: no reply after sending "
-                  << "(suspect the checksum or the address/port swap)\n";
+        std::cerr << "GuardianPort: no reply with the original source/destination addresses\n";
         return false;
     }
 
-    // The reply may or may not be wrapped the same way -- check
-    // before assuming the 48-byte offset applies.
-    size_t off = (reply_bytes.size() >= kPayloadOffset && (reply_bytes[0] >> 4) == 6)
-                     ? kPayloadOffset : 0;
-    std::string reply_text(reply_bytes.begin() + off, reply_bytes.end());
+    std::string reply_text(reply_bytes.begin() + kPayloadOffset, reply_bytes.end());
+    session.secret_phrase = reply_text;
     std::cerr << "GuardianPort revealed: " << reply_text << "\n";
 
-    // TODO: once the success format is confirmed, parse whatever this
-    // reveals (likely one of the two secret port numbers) into the
-    // matching PuzzleSession field instead of just logging it.
     session.guardian_done = true;
     return true;
 }

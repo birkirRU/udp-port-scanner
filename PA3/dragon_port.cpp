@@ -13,20 +13,30 @@ bool DragonPort::identify(const std::string& response) const {
 
 bool DragonPort::solve(PuzzleSession& session) {
     if (!is_open() && !open()) return false;
-    std::vector<uint8_t> msg;
 
-    uint16_t port1 = htons(session.secret_port_1);
-    uint16_t port2 = htons(session.secret_port_2);
+    // Dragon's banner asks for "a list of secret ports, separated by
+    // commas" -- that's plain ASCII text, e.g. "4033,4012", not the
+    // ports packed as raw 16-bit binary values the way S.E.C.R.E.T.'s
+    // XOR step wanted. Sending binary here is almost certainly why
+    // nothing came back: six bytes containing two unprintable control
+    // characters doesn't look like a request its parser recognizes.
+    std::string msg_text = std::to_string(session.secret_port_1) + "," +
+                            std::to_string(session.secret_port_2);
+    std::cerr << "DragonPort: sending '" << msg_text << "'\n";
 
-    msg.resize(sizeof(port1) + 2 + sizeof(port2));
+    auto reply = send_and_receive(std::vector<uint8_t>(msg_text.begin(), msg_text.end()));
+    if (reply.empty()) {
+        std::cerr << "DragonPort: no reply after retries\n";
+        return false;
+    }
 
-    std::memcpy(msg.data(), &port1, sizeof(port1));
-    msg[sizeof(port1)] = ',';
-    msg[sizeof(port1)] = ' ';
-    std::memcpy(msg.data() + sizeof(port1) + 2, &port2, sizeof(port2));
+    std::string reply_text(reply.begin(), reply.end());
+    std::cerr << "DragonPort revealed: " << reply_text << "\n";
 
-    auto reply = send_and_receive(msg);
-
-
-    return false;
+    // TODO: this is still just step 1 (handing over the port list).
+    // Once we see what the knock-sequence reply actually looks like,
+    // parse it here and drive the individual knocks against
+    // secret_port_1/secret_port_2 (each knock needs group_id + sigil
+    // + secret_phrase per the banner text).
+    return true;
 }
