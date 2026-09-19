@@ -61,8 +61,7 @@ public:
     virtual ~PortSender();
 
     // Opens a socket and connect()s it to remote_ip_:remote_port_.
-    // Defaults to IPv4 UDP; pass AF_INET6 (with SOCK_DGRAM) for
-    // GuardianPort, for example. Raw sockets (EvilPort) need their
+    // Defaults to IPv4 UDP. Raw sockets (EvilPort) need their
     // own hand-built IP header on the way out and hand back full IP
     // headers on the way in, so that module builds its own raw
     // socket separately rather than reusing send()/receive() below.
