@@ -1,18 +1,14 @@
 #pragma once
 #include "port_sender.h"
 
-class EvilPort : public PortSender {
+// Evil port: only answers packets whose IPv4 "evil bit" (the reserved top
+// bit of the flags field) is set, which the kernel never does for us.
+class EvilPort : public PuzzlePort {
 public:
-    EvilPort(const std::string& ip, int port);
-    bool identify(const std::string& response) const override;
+    using PuzzlePort::PuzzlePort;
+    static bool identify(const std::string& response);
     bool solve(PuzzleSession& session) override;
+
+    // Sends via a raw socket with the evil bit set (needs root).
     bool send(const std::vector<uint8_t>& payload) override;
-    using PortSender::send;
-
-    const std::string& reply_text() const { return reply_text_; }
-
-private:
-    std::string reply_text_;
 };
-
-

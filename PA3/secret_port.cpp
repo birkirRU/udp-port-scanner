@@ -1,79 +1,66 @@
 #include "secret_port.h"
 
-#include <arpa/inet.h>
-#include <cstring>
 #include <iostream>
 #include <regex>
 
-const std::vector<std::string> SecretPort::kMemberNames = {
-    "birkirsa24",
-    "bjornth24",
-};
+namespace {
+const std::vector<std::string> kMemberNames = {"birkirsa24", "bjornth24"};
 
-SecretPort::SecretPort(const std::string& ip, int port)
-    : PortSender(ip, port) {}
+// Our secret number 0x42569243, as the big-endian bytes the server expects.
+const uint8_t kSecret[4] = {0x42, 0x56, 0x92, 0x43};
+}  // namespace
 
-bool SecretPort::identify(const std::string& response) const {
-    return response.find("Sacred Elder Cipher Relay") != std::string::npos; 
+bool SecretPort::identify(const std::string& response) {
+    return response.find("Sacred Elder Cipher Relay") != std::string::npos;
 }
 
+// Exchange:
+//   1. Send "S.E.C.R.E.T.:<names>," + secret. Reply is [group_id][challenge].
+//   2. The sigil is the challenge XOR the secret, byte by byte.
+//   3. Send [group_id][sigil]. Reply reveals the hidden port.
 bool SecretPort::solve(PuzzleSession& session) {
-    if (!is_open() && !open()) return false;
-
-    uint32_t secret_number = 0x42569243;
-    uint32_t secret_be = htonl(secret_number);
-    uint8_t secret_bytes[4];
-    std::memcpy(secret_bytes, &secret_be, 4);
-
-    // Step 2: "S.E.C.R.E.T.:name1,name2," + secret number as the last 4 bytes
     std::string header = "S.E.C.R.E.T.:";
     for (const auto& name : kMemberNames) header += name + ",";
     std::vector<uint8_t> msg(header.begin(), header.end());
-    msg.insert(msg.end(), secret_bytes, secret_bytes + 4);
+    msg.insert(msg.end(), kSecret, kSecret + 4);
 
-    // Step 3: reply is [group_id][4-byte challenge]
     auto reply = send_and_receive(msg);
     if (reply.size() != 5) {
         std::cerr << "SecretPort: unexpected reply size " << reply.size() << "\n";
         return false;
     }
 
-    // Step 4: sigil = challenge XOR secret, byte by byte
-    uint8_t group_id = reply[0];
-    uint8_t sigil_bytes[4];
-    for (int i = 0; i < 4; ++i) sigil_bytes[i] = reply[1 + i] ^ secret_bytes[i];
+    PuzzleSession found;
+    found.group_id = reply[0];
+    for (int i = 0; i < 4; ++i) {
+        found.sigil = (found.sigil << 8) | (reply[1 + i] ^ kSecret[i]);
+    }
 
-    // Step 5: send [group_id][sigil], read the revealed secret
-    std::vector<uint8_t> knock{group_id, sigil_bytes[0], sigil_bytes[1],
-    sigil_bytes[2], sigil_bytes[3]};
-    auto secret_reply = send_and_receive(knock);
+    auto secret_reply = send_and_receive(found.identity_bytes());
     if (secret_reply.empty()) {
-        std::cerr << "SecretPort: no secret revealed (timeout or sigil rejected)\n";
+        std::cerr << "SecretPort: no reply (timeout or sigil rejected)\n";
         return false;
     }
-    secret_text_.assign(secret_reply.begin(), secret_reply.end());
-    std::cerr << "SecretPort revealed: " << secret_text_ << "\n";
+    std::string text(secret_reply.begin(), secret_reply.end());
+    std::cerr << "SecretPort revealed: " << text << "\n";
 
-    // hidden port:\s*  -> Matches "hidden port:" and any spaces following it
-    // (\d+)            -> Capture group 1: Matches and stores the port digits (ignoring the "8" earlier)
-    std::regex pattern(R"(hidden port:\s*(\d+))"); 
+    // Capture the digits after "hidden port:"; the text has other numbers too.
+    const std::regex pattern(R"(hidden port:\s*(\d+))");
     std::smatch match;
-    std::string matched_port;
-
-    if (std::regex_search(secret_text_, match, pattern)) {
-        // match[1] contains only the specific captured digits inside the parentheses ("4033")
-        matched_port = match[1].str();
-    } else {
-        std::cout << "Hidden port format not found." << std::endl;
+    if (!std::regex_search(text, match, pattern)) {
+        std::cerr << "SecretPort: hidden port not found in reply\n";
+        return false;
+    }
+    int port = to_port(match[1].str());
+    if (port < 0) {
+        std::cerr << "SecretPort: invalid hidden port " << match[1] << "\n";
+        return false;
     }
 
-    // Only publish to the session once everything succeeded.
-    uint32_t sigil_be;
-    std::memcpy(&sigil_be, sigil_bytes, 4);
-    session.group_id = group_id;
-    session.sigil = ntohl(sigil_be);
-    // session.hidden_port = std::stoi(matched_port);
-    session.secret_port_1 = std::stoi(matched_port);
+    // Publish to the session only once everything succeeded.
+    session.group_id = found.group_id;
+    session.sigil = found.sigil;
+    session.secret_port_1 = static_cast<uint16_t>(port);
     session.secret_done = true;
     return true;
 }

@@ -1,6 +1,5 @@
 #include "evil_port.h"
 
-#include <arpa/inet.h>
 #include <cstring>
 #include <iostream>
 #include <netinet/in.h>
@@ -8,40 +7,58 @@
 #include <unistd.h>
 
 namespace {
-// One's-complement checksum over big-endian 16-bit words (RFC 1071).
-uint16_t checksum16(const uint8_t* data, size_t len) {
-    uint32_t sum = 0;
-    for (size_t i = 0; i + 1 < len; i += 2) sum += (data[i] << 8) | data[i + 1];
-    if (len % 2) sum += data[len - 1] << 8;
-    while (sum >> 16) sum = (sum & 0xFFFF) + (sum >> 16);
-    return static_cast<uint16_t>(~sum);
-}
+constexpr size_t kIpHdrLen = 20;
+constexpr size_t kUdpHdrLen = 8;
 
-// Raw IPv4 sockets want ip_len / ip_off in network order on Linux,
-// but in host order on macOS/BSD.
-uint16_t ip_hdr_field(uint16_t v) {
+// Raw IPv4 sockets want ip_len / ip_off in network order on Linux, but in
+// host order on macOS/BSD.
+void put_ip_field(uint8_t* p, uint16_t v) {
 #ifdef __APPLE__
-    return v;
+    std::memcpy(p, &v, 2);
 #else
-    return htons(v);
+    put_be16(p, v);
 #endif
 }
 
-} // namespace
+// Builds a complete IPv4+UDP packet with the evil bit set. We write the IP
+// header ourselves because a normal UDP socket can't set that bit.
+std::vector<uint8_t> build_packet(const sockaddr_in& local, const sockaddr_in& remote,
+                                  const std::vector<uint8_t>& payload) {
+    const uint16_t udp_len = static_cast<uint16_t>(kUdpHdrLen + payload.size());
+    const uint16_t total_len = static_cast<uint16_t>(kIpHdrLen + udp_len);
+    std::vector<uint8_t> pkt(kIpHdrLen + kUdpHdrLen, 0);
 
+    // IPv4 header
+    pkt[0] = 0x45;                               // version 4, header length 5 words
+    put_ip_field(&pkt[2], total_len);
+    put_be16(&pkt[4], 0x1234);                   // identification
+    put_ip_field(&pkt[6], 0x8000);               // the evil bit
+    pkt[8] = 64;                                 // TTL
+    pkt[9] = IPPROTO_UDP;
+    std::memcpy(&pkt[12], &local.sin_addr, 4);
+    std::memcpy(&pkt[16], &remote.sin_addr, 4);
+    put_be16(&pkt[10], checksum_fold(checksum_add(pkt.data(), kIpHdrLen)));
 
-EvilPort::EvilPort(const std::string& ip, int port)
-    : PortSender(ip, port) {}
+    // UDP header (checksum left 0, which is allowed over IPv4). Ports are
+    // copied as-is: sockaddr already holds them in network order.
+    std::memcpy(&pkt[20], &local.sin_port, 2);
+    std::memcpy(&pkt[22], &remote.sin_port, 2);
+    put_be16(&pkt[24], udp_len);
 
-bool EvilPort::identify(const std::string& response) const {
+    pkt.insert(pkt.end(), payload.begin(), payload.end());
+    return pkt;
+}
+}  // namespace
+
+bool EvilPort::identify(const std::string& response) {
     return response.find("I am an evil port") != std::string::npos;
 }
 
+// We keep the ordinary UDP socket open only to own our source port (so the
+// server's reply comes back to it) and send the packet on a raw socket.
 bool EvilPort::send(const std::vector<uint8_t>& payload) {
-    // Ordinary UDP socket: owns our source port and receives the reply.
-    if (!is_open() && !open()) return false;
+    if (!open()) return false;
 
-    // Get the local and remote addresses for the raw socket.
     sockaddr_in local{}, remote{};
     socklen_t len = sizeof(local);
     if (getsockname(sockfd_, reinterpret_cast<sockaddr*>(&local), &len) < 0) {
@@ -54,11 +71,9 @@ bool EvilPort::send(const std::vector<uint8_t>& payload) {
         return false;
     }
 
-
-    // Raw socket: lets us write the IP header ourselves.
     int raw = socket(AF_INET, SOCK_RAW, IPPROTO_UDP);
     if (raw < 0) {
-        perror("socket(SOCK_RAW) failed");
+        perror("socket(SOCK_RAW)");
         return false;
     }
     int on = 1;
@@ -68,37 +83,9 @@ bool EvilPort::send(const std::vector<uint8_t>& payload) {
         return false;
     }
 
-    const uint16_t udp_len = static_cast<uint16_t>(8 + payload.size());
-    const uint16_t total_len = static_cast<uint16_t>(20 + udp_len);
-
-    std::vector<uint8_t> pkt(28, 0);
-
-    // IPv4 header (20 bytes)
-    pkt[0] = 0x45;                               // version 4 and header length 5 words
-    uint16_t v = ip_hdr_field(total_len);
-    std::memcpy(&pkt[2], &v, 2);                 // total length
-    v = htons(0x1234);
-    std::memcpy(&pkt[4], &v, 2);                 // identification 
-    v = ip_hdr_field(0x8000);                    // THE EVIL BIT: top bit of flags/fragment
-    std::memcpy(&pkt[6], &v, 2);
-    pkt[8] = 64;                                 // TTL
-    pkt[9] = IPPROTO_UDP;                        // protocol = UDP
-    std::memcpy(&pkt[12], &local.sin_addr, 4);   // source address
-    std::memcpy(&pkt[16], &remote.sin_addr, 4);  // destination address
-    uint16_t ck = checksum16(pkt.data(), 20);    
-    pkt[10] = static_cast<uint8_t>(ck >> 8);
-    pkt[11] = static_cast<uint8_t>(ck & 0xFF);
-
-    // UDP header (8 bytes)
-    std::memcpy(&pkt[20], &local.sin_port, 2);   // source port (already network order)
-    std::memcpy(&pkt[22], &remote.sin_port, 2);  // destination port
-    pkt[24] = static_cast<uint8_t>(udp_len >> 8);
-    pkt[25] = static_cast<uint8_t>(udp_len & 0xFF);
-
-    pkt.insert(pkt.end(), payload.begin(), payload.end());
-
+    auto pkt = build_packet(local, remote, payload);
     ssize_t n = sendto(raw, pkt.data(), pkt.size(), 0,
-    reinterpret_cast<sockaddr*>(&remote), sizeof(remote));
+                       reinterpret_cast<sockaddr*>(&remote), sizeof(remote));
     ::close(raw);
     if (n != static_cast<ssize_t>(pkt.size())) {
         perror("sendto");
@@ -107,38 +94,37 @@ bool EvilPort::send(const std::vector<uint8_t>& payload) {
     return true;
 }
 
+// Send our identity (via send() above, so the evil bit is set); the reply
+// ends with the secret port number.
 bool EvilPort::solve(PuzzleSession& session) {
     if (!session.secret_done) {
-        std::cerr << "EvilPort: needs group id and sigil from SecretPort first\n";
+        std::cerr << "EvilPort: needs Secret to run first\n";
         return false;
     }
 
-    // send_and_receive() calls our send() override, so the identity
-    // message goes out with the evil bit set and is retried on drops.
     auto reply = send_and_receive(session.identity_bytes());
     if (reply.empty()) {
-        std::cerr << "EvilPort: no reply (evil bit stripped, or the port ignored the message)\n";
+        std::cerr << "EvilPort: no reply (evil bit stripped, or not running as root)\n";
         return false;
     }
-    reply_text_.assign(reply.begin(), reply.end());
-    std::cerr << "EvilPort revealed: " << reply_text_ << "\n";
+    std::string text(reply.begin(), reply.end());
+    std::cerr << "EvilPort revealed: " << text << "\n";
 
-    // The reply ends with the port number
-    // so take the last run of digits in the text.
-    size_t last = reply_text_.find_last_of("0123456789");
+    // Take the last run of digits in the text.
+    size_t last = text.find_last_of("0123456789");
     if (last == std::string::npos) {
         std::cerr << "EvilPort: no port number found in reply\n";
         return false;
     }
-    size_t before = reply_text_.find_last_not_of("0123456789", last);
+    size_t before = text.find_last_not_of("0123456789", last);
     size_t first = (before == std::string::npos) ? 0 : before + 1;
-    int port = std::stoi(reply_text_.substr(first, last - first + 1));
-    if (port < 1 || port > 65535) {
-        std::cerr << "EvilPort: implausible port " << port << "\n";
+    int port = to_port(text.substr(first, last - first + 1));
+    if (port < 0) {
+        std::cerr << "EvilPort: invalid port in reply\n";
         return false;
     }
 
-    session.secret_port_2 = port;
+    session.secret_port_2 = static_cast<uint16_t>(port);
     session.evil_done = true;
     return true;
 }

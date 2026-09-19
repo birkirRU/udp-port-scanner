@@ -1,15 +1,11 @@
 #pragma once
 #include "port_sender.h"
 
-class SecretPort : public PortSender {
+// S.E.C.R.E.T. port: we prove who we are with a shared secret number, and
+// get back our group id, a sigil, and the number of a hidden port.
+class SecretPort : public PuzzlePort {
 public:
-    SecretPort(const std::string& ip, int port);
-    bool identify(const std::string& response) const override;
+    using PuzzlePort::PuzzlePort;
+    static bool identify(const std::string& response);
     bool solve(PuzzleSession& session) override;
-
-    const std::string& secret_text() const { return secret_text_; }
-
-private:
-    static const std::vector<std::string> kMemberNames;
-    std::string secret_text_;
 };

@@ -1,10 +1,11 @@
 #pragma once
 #include "port_sender.h"
 
-class DragonPort : public PortSender {
+// D.R.A.G.O.N. port: given the two secret ports it returns a sequence of
+// ports to knock on, using the phrase the Guardian revealed.
+class DragonPort : public PuzzlePort {
 public:
-    DragonPort(const std::string& ip, int port);
-    bool identify(const std::string& response) const override;
+    using PuzzlePort::PuzzlePort;
+    static bool identify(const std::string& response);
     bool solve(PuzzleSession& session) override;
-
 };
