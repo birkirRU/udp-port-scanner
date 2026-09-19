@@ -30,6 +30,7 @@ IdentifiedPorts identify_modules(const std::string& ip, const std::vector<int>& 
             continue;
         }
         std::string response = prober.probe();
+        std::string identify_name = "unknown";
         prober.close();
 
         // identify() is pure string matching -- no socket needed --
@@ -39,19 +40,23 @@ IdentifiedPorts identify_modules(const std::string& ip, const std::vector<int>& 
         if (!result.secret && SecretPort(ip, port).identify(response)) {
             result.secret = std::make_unique<SecretPort>(ip, port);
             matched = true;
+            identify_name = "secret";
         } else if (!result.evil && EvilPort(ip, port).identify(response)) {
             result.evil = std::make_unique<EvilPort>(ip, port);
             matched = true;
+            identify_name = "evil";
         } else if (!result.guardian && GuardianPort(ip, port).identify(response)) {
             result.guardian = std::make_unique<GuardianPort>(ip, port);
             matched = true;
+            identify_name = "guardian";
         } else if (!result.dragon && DragonPort(ip, port).identify(response)) {
             result.dragon = std::make_unique<DragonPort>(ip, port);
             matched = true;
+            identify_name = "dragon";
         }
 
         if (matched) {
-            std::cerr << "Port " << port << " identified\n";
+            std::cerr << "Port " << port << " identified as " << identify_name << "\n";
         } else {
             std::cerr << "Port " << port << " did not match any known module "
                       << "(response: " << response << ")\n";
