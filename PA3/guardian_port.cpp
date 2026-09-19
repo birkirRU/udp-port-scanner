@@ -7,6 +7,19 @@
 #include <netinet/ip6.h>
 #include <netinet/udp.h>
 
+#ifdef __APPLE__
+  #define UDP_SPORT uh_sport
+  #define UDP_DPORT uh_dport
+  #define UDP_LEN   uh_ulen
+  #define UDP_CHECK uh_sum
+#else
+  #define UDP_SPORT source
+  #define UDP_DPORT dest
+  #define UDP_LEN   len
+  #define UDP_CHECK check
+#endif
+
+
 GuardianPort::GuardianPort(const std::string& ip, int port)
     : PortSender(ip, port) {}
 
@@ -63,10 +76,10 @@ std::vector<uint8_t> GuardianPort::build_packet(
 
     // ---- real udphdr; checksum field must be zero while summing ----
     udphdr udp{};
-    udp.source = htons(src_port_host);
-    udp.dest = htons(dst_port_host);
-    udp.len = htons(udp_len);
-    udp.check = 0;
+    udp.UDP_SPORT = htons(src_port_host);
+    udp.UDP_DPORT = htons(dst_port_host);
+    udp.UDP_LEN   = htons(udp_len);
+    udp.UDP_CHECK = 0;
 
     // ---- IPv6 pseudo-header for the checksum: 40 bytes, never sent ----
     // layout: src(16) | dst(16) | upper-layer length as 4 bytes | zero(3) | next header(1)
@@ -81,7 +94,7 @@ std::vector<uint8_t> GuardianPort::build_packet(
     uint32_t sum = sum16(pseudo, sizeof(pseudo));
     sum = sum16(reinterpret_cast<const uint8_t*>(&udp), sizeof(udp), sum);
     sum = sum16(payload.data(), payload.size(), sum);
-    udp.check = htons(fold_checksum(sum));
+    udp.UDP_CHECK = htons(fold_checksum(sum));
 
     std::vector<uint8_t> out(kIp6HdrLen + kUdpHdrLen + payload.size());
     std::memcpy(out.data(), &v6, kIp6HdrLen);
