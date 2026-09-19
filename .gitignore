@@ -1,0 +1,14 @@
+# Ignore any file with no dot in its name at all -- this is meant to
+# catch the compiled binary (`puzzle_solver`, produced by `make`,
+# has no extension) without needing to name it explicitly.
+#
+# Mechanism: ignore everything, then re-include directories (so git
+# still descends into them) and anything containing a dot.
+*
+!*/
+!*.*
+
+.vscode/*
+
+# --- Exceptions -----------------------------------------------------
+!Makefile
