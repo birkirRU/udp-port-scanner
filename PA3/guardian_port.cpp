@@ -34,6 +34,7 @@ uint16_t GuardianPort::fold_checksum(uint32_t sum) {
 }
 
 std::vector<uint8_t> GuardianPort::build_packet(
+    const std::array<uint8_t, 4>& flow_field_raw,
     const std::array<uint8_t, 16>& src_addr,
     const std::array<uint8_t, 16>& dst_addr,
     uint16_t src_port_host,
@@ -49,7 +50,11 @@ std::vector<uint8_t> GuardianPort::build_packet(
 
     // ---- real ip6_hdr, filled by hand -- never actually routed ----
     ip6_hdr v6{};
-    v6.ip6_flow = htonl(0x60000000u);   // version 6; traffic class/flow label 0
+    // Copy the version/traffic-class/flow-label bytes verbatim from
+    // the server's own packet rather than computing them -- the flow
+    // label is checked and must match what the server issued for
+    // this exchange.
+    std::memcpy(&v6.ip6_flow, flow_field_raw.data(), 4);
     v6.ip6_plen = htons(udp_len);       // payload length EXCLUDES these 40 bytes
     v6.ip6_nxt = IPPROTO_UDP;           // 17
     v6.ip6_hlim = 64;                   // arbitrary -- packet is never actually routed
@@ -114,6 +119,9 @@ bool GuardianPort::solve(PuzzleSession& session) {
     //    a misaligned pointer -- buf+8/buf+24 aren't guaranteed
     //    2- or 4-byte aligned, and reinterpret-casting would also be
     //    a strict-aliasing violation that can misbehave under -O2.
+    std::array<uint8_t, 4> flow_field_raw{}; // echoed verbatim, not recomputed
+    std::memcpy(flow_field_raw.data(), banner_bytes.data(), 4);
+
     std::array<uint8_t, 16> their_src{}, their_dst{};
     std::memcpy(their_src.data(), banner_bytes.data() + kSrcAddrOffset, 16);
     std::memcpy(their_dst.data(), banner_bytes.data() + kDstAddrOffset, 16);
@@ -135,7 +143,7 @@ bool GuardianPort::solve(PuzzleSession& session) {
     // 5. Build and send on the ordinary connected UDP socket -- the
     //    kernel still builds the real IPv4/UDP headers; this is just
     //    53 bytes of application data.
-    auto packet = build_packet(their_dst, their_src, our_src_port, our_dst_port, payload);
+    auto packet = build_packet(flow_field_raw, their_dst, their_src, our_src_port, our_dst_port, payload);
 
     auto reply_bytes = send_and_receive(packet);
     if (reply_bytes.empty()) {

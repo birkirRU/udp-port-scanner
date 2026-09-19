@@ -42,10 +42,16 @@ private:
     static constexpr size_t kPayloadOffset = kIp6HdrLen + kUdpHdrLen; // 48
 
     // Builds [ip6_hdr][udphdr][payload] using real struct ip6_hdr /
-    // struct udphdr for the two headers, with the UDP checksum
-    // computed over the (never-transmitted) 40-byte IPv6
-    // pseudo-header + the UDP segment.
+    // struct udphdr for the two headers. `flow_field_raw` is the
+    // verbatim first 4 bytes (version + traffic class + flow label)
+    // copied from the server's own banner packet -- the flow label is
+    // apparently tied to this specific exchange (much like the sigil
+    // is tied to S.E.C.R.E.T.'s challenge) and must be echoed back
+    // exactly, not recomputed, or the server rejects the reply with
+    // "unknown flow label". The UDP checksum is computed over the
+    // (never-transmitted) 40-byte IPv6 pseudo-header + the UDP segment.
     static std::vector<uint8_t> build_packet(
+        const std::array<uint8_t, 4>& flow_field_raw,
         const std::array<uint8_t, 16>& src_addr,
         const std::array<uint8_t, 16>& dst_addr,
         uint16_t src_port_host,
