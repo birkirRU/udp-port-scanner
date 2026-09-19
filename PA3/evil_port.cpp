@@ -27,7 +27,7 @@ uint16_t ip_hdr_field(uint16_t v) {
 #endif
 }
 
-} // namespace what does this do?
+} // namespace
 
 
 EvilPort::EvilPort(const std::string& ip, int port)
@@ -37,37 +37,35 @@ bool EvilPort::identify(const std::string& response) const {
     return response.find("I am an evil port") != std::string::npos;
 }
 
-std::vector<uint8_t> EvilPort::send_with_evil_bit(const std::vector<uint8_t>& payload) {
+bool EvilPort::send(const std::vector<uint8_t>& payload) {
     // Ordinary UDP socket: owns our source port and receives the reply.
-    if (!is_open() && !open()) return {};
+    if (!is_open() && !open()) return false;
 
-    // Which local address and port did the kernel pick for that socket?
-    sockaddr_in local{};
-    socklen_t local_len = sizeof(local);
-    if (getsockname(sockfd_, reinterpret_cast<sockaddr*>(&local), &local_len) < 0) {
+    // Get the local and remote addresses for the raw socket.
+    sockaddr_in local{}, remote{};
+    socklen_t len = sizeof(local);
+    if (getsockname(sockfd_, reinterpret_cast<sockaddr*>(&local), &len) < 0) {
         perror("getsockname");
-        return {};
+        return false;
+    }
+    len = sizeof(remote);
+    if (getpeername(sockfd_, reinterpret_cast<sockaddr*>(&remote), &len) < 0) {
+        perror("getpeername");
+        return false;
     }
 
-    sockaddr_in remote{};
-    remote.sin_family = AF_INET;
-    remote.sin_port = htons(static_cast<uint16_t>(remote_port_));
-    if (inet_pton(AF_INET, remote_ip_.c_str(), &remote.sin_addr) != 1) {
-        std::cerr << "EvilPort: bad IP " << remote_ip_ << "\n";
-        return {};
-    }
 
     // Raw socket: lets us write the IP header ourselves.
     int raw = socket(AF_INET, SOCK_RAW, IPPROTO_UDP);
     if (raw < 0) {
         perror("socket(SOCK_RAW) failed");
-        return {};
+        return false;
     }
     int on = 1;
     if (setsockopt(raw, IPPROTO_IP, IP_HDRINCL, &on, sizeof(on)) < 0) {
         perror("setsockopt(IP_HDRINCL)");
         ::close(raw);
-        return {};
+        return false;
     }
 
     const uint16_t udp_len = static_cast<uint16_t>(8 + payload.size());
@@ -99,20 +97,15 @@ std::vector<uint8_t> EvilPort::send_with_evil_bit(const std::vector<uint8_t>& pa
 
     pkt.insert(pkt.end(), payload.begin(), payload.end());
 
-    std::vector<uint8_t> reply;
-    for (int attempt = 0; attempt < 3 && reply.empty(); ++attempt) {
-        ssize_t n = sendto(raw, pkt.data(), pkt.size(), 0, 
-                    reinterpret_cast<sockaddr*>(&remote), sizeof(remote));
-        if (n != static_cast<ssize_t>(pkt.size())) {
-            perror("sendto");
-            break;
-        }
-        reply = receive();
-    }
+    ssize_t n = sendto(raw, pkt.data(), pkt.size(), 0,
+    reinterpret_cast<sockaddr*>(&remote), sizeof(remote));
     ::close(raw);
-    return reply;
+    if (n != static_cast<ssize_t>(pkt.size())) {
+        perror("sendto");
+        return false;
+    }
+    return true;
 }
-
 
 bool EvilPort::solve(PuzzleSession& session) {
     if (!session.secret_done) {
@@ -120,14 +113,9 @@ bool EvilPort::solve(PuzzleSession& session) {
         return false;
     }
 
-    // [group_id][sigil, 4 bytes big-endian], sent with the evil bit set.
-    std::vector<uint8_t> id_msg{session.group_id};
-    uint32_t sigil_be = htonl(session.sigil);
-    uint8_t sb[4];
-    std::memcpy(sb, &sigil_be, 4);
-    id_msg.insert(id_msg.end(), sb, sb + 4);
-
-    auto reply = send_with_evil_bit(id_msg);
+    // send_and_receive() calls our send() override, so the identity
+    // message goes out with the evil bit set and is retried on drops.
+    auto reply = send_and_receive(session.identity_bytes());
     if (reply.empty()) {
         std::cerr << "EvilPort: no reply (evil bit stripped, or the port ignored the message)\n";
         return false;

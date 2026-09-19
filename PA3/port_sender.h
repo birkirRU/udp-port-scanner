@@ -29,6 +29,14 @@ struct PuzzleSession {
     int secret_port_1 = 0;
     int secret_port_2 = 0;
     std::string secret_phrase;
+
+    // The 5-byte identity message: [group_id][sigil, 4 bytes big-endian].
+    std::vector<uint8_t> identity_bytes() const {
+        return {group_id,
+                static_cast<uint8_t>(sigil >> 24), static_cast<uint8_t>(sigil >> 16),
+                static_cast<uint8_t>(sigil >> 8),  static_cast<uint8_t>(sigil)};
+    }
+
 };
 
 // PortSender
@@ -68,7 +76,7 @@ public:
     // Sends raw bytes / a string to the configured remote endpoint.
     // Returns true if the full payload was sent. No retry here --
     // see send_and_receive() below for that.
-    bool send(const std::vector<uint8_t>& data);
+    virtual bool send(const std::vector<uint8_t>& data);
     bool send(const std::string& data);
 
     // Waits up to timeout_ms for a single datagram from the remote
