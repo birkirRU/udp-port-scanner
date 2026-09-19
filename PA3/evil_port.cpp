@@ -115,17 +115,42 @@ std::vector<uint8_t> EvilPort::send_with_evil_bit(const std::vector<uint8_t>& pa
 
 
 bool EvilPort::solve(PuzzleSession& session) {
-    // TODO: the payload is a guess (the same 6-space filler as the probe).
-    // Adjust once we see how the port replies to an evil-bit packet.
-    auto reply = send_with_evil_bit(std::vector<uint8_t>(6, ' '));
-    if (reply.empty()) {
-        std::cerr << "EvilPort: no reply (packet dropped, evil bit stripped, or wrong payload)\n";
+    if (!session.secret_done) {
+        std::cerr << "EvilPort: needs group id and sigil from SecretPort first\n";
         return false;
     }
 
+    // [group_id][sigil, 4 bytes big-endian], sent with the evil bit set.
+    std::vector<uint8_t> id_msg{session.group_id};
+    uint32_t sigil_be = htonl(session.sigil);
+    uint8_t sb[4];
+    std::memcpy(sb, &sigil_be, 4);
+    id_msg.insert(id_msg.end(), sb, sb + 4);
+
+    auto reply = send_with_evil_bit(id_msg);
+    if (reply.empty()) {
+        std::cerr << "EvilPort: no reply (evil bit stripped, or the port ignored the message)\n";
+        return false;
+    }
     reply_text_.assign(reply.begin(), reply.end());
     std::cerr << "EvilPort revealed: " << reply_text_ << "\n";
 
+    // The reply ends with the port number
+    // so take the last run of digits in the text.
+    size_t last = reply_text_.find_last_of("0123456789");
+    if (last == std::string::npos) {
+        std::cerr << "EvilPort: no port number found in reply\n";
+        return false;
+    }
+    size_t before = reply_text_.find_last_not_of("0123456789", last);
+    size_t first = (before == std::string::npos) ? 0 : before + 1;
+    int port = std::stoi(reply_text_.substr(first, last - first + 1));
+    if (port < 1 || port > 65535) {
+        std::cerr << "EvilPort: implausible port " << port << "\n";
+        return false;
+    }
+
+    session.secret_port_1 = port;
     session.evil_done = true;
     return true;
 }
