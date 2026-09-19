@@ -8,4 +8,8 @@ public:
     bool identify(const std::string& response) const override;
     bool solve(PuzzleSession& session) override;
 
+    const std::string& reply_text() const { return reply_text_; }
+
+private:
+    std::string reply_text_;
 };
