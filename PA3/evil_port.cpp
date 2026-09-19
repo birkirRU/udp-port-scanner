@@ -138,7 +138,7 @@ bool EvilPort::solve(PuzzleSession& session) {
         return false;
     }
 
-    session.secret_port_1 = port;
+    session.secret_port_2 = port;
     session.evil_done = true;
     return true;
 }

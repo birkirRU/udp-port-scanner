@@ -72,7 +72,8 @@ bool SecretPort::solve(PuzzleSession& session) {
     std::memcpy(&sigil_be, sigil_bytes, 4);
     session.group_id = group_id;
     session.sigil = ntohl(sigil_be);
-    session.hidden_port = std::stoi(matched_port);
+    // session.hidden_port = std::stoi(matched_port);
+    session.secret_port_1 = std::stoi(matched_port);
     session.secret_done = true;
     return true;
 }

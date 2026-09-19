@@ -26,8 +26,8 @@ struct PuzzleSession {
     // Evil and/or Guardian -- add fields here once confirmed.
 
     // -- consumed by DragonPort --
-    int secret_port_1 = 0;
-    int secret_port_2 = 0;
+    uint16_t secret_port_1 = 0;
+    uint16_t secret_port_2 = 0;
     std::string secret_phrase;
 
     // The 5-byte identity message: [group_id][sigil, 4 bytes big-endian].
