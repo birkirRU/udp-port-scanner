@@ -17,15 +17,28 @@ int to_port(const std::string& text) {
     }
 }
 
+// Adds the data as 16 bit words in network byte order. The checksum format
+// treats every pair of bytes as one big endian word, so the first byte is
+// shifted into the high half of the word.
 uint32_t checksum_add(const uint8_t* data, size_t len, uint32_t sum) {
     size_t i = 0;
-    for (; i + 1 < len; i += 2) sum += (data[i] << 8) | data[i + 1];
-    if (i < len) sum += data[i] << 8;  // odd trailing byte is padded with 0
+    for (; i + 1 < len; i += 2) {
+        sum += (data[i] << 8) | data[i + 1];
+    }
+
+    // An odd length leaves one byte without a partner. The checksum rules
+    // place that byte in the high half and use zero for the low half.
+    if (i < len) sum += data[i] << 8;
     return sum;
 }
 
+// Finishes the Internet checksum after all words have been added. Carries
+// above 16 bits are added back into the low 16 bits, as required by one's
+// complement arithmetic, and the final sum is complemented.
 uint16_t checksum_fold(uint32_t sum) {
-    while (sum >> 16) sum = (sum & 0xFFFF) + (sum >> 16);  // end-around carry
+    while (sum >> 16) {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
     return static_cast<uint16_t>(~sum);
 }
 
