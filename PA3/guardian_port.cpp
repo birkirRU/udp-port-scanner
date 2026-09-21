@@ -6,18 +6,18 @@
 #include <netinet/in.h>
 
 namespace {
-// Wrapped packet layout: [40-byte IPv6 header][8-byte UDP header][payload].
-constexpr size_t kIp6HdrLen = 40;
-constexpr size_t kUdpHdrLen = 8;
-constexpr size_t kSrcAddrOffset = 8;
-constexpr size_t kDstAddrOffset = 24;
-constexpr size_t kUdpOffset = kIp6HdrLen;
-constexpr size_t kPayloadOffset = kIp6HdrLen + kUdpHdrLen;
+// Wrapped packet layout: [40 byte IPv6 header][8 byte UDP header][payload].
+constexpr size_t Ip6HdrLen = 40;
+constexpr size_t UdpHdrLen = 8;
+constexpr size_t SrcAddrOffset = 8;
+constexpr size_t DstAddrOffset = 24;
+constexpr size_t UdpOffset = Ip6HdrLen;
+constexpr size_t PayloadOffset = Ip6HdrLen + UdpHdrLen;
 
 using Addr = std::array<uint8_t, 16>;
 
 bool is_wrapped_ipv6(const std::vector<uint8_t>& pkt) {
-    return pkt.size() >= kPayloadOffset && (pkt[0] >> 4) == 6;
+    return pkt.size() >= PayloadOffset && (pkt[0] >> 4) == 6;
 }
 
 Addr addr_at(const std::vector<uint8_t>& pkt, size_t offset) {
@@ -26,31 +26,31 @@ Addr addr_at(const std::vector<uint8_t>& pkt, size_t offset) {
     return addr;
 }
 
-// Builds the wrapped packet. `flow` is the version/traffic-class/flow-label
+// Builds the wrapped packet. `flow` is the version/traffic class/flow label
 // word, echoed from the banner because the server rejects any other value.
 std::vector<uint8_t> build_packet(const std::array<uint8_t, 4>& flow,
                                   const Addr& src, const Addr& dst,
                                   uint16_t src_port, uint16_t dst_port,
                                   const std::vector<uint8_t>& payload) {
-    const uint16_t udp_len = static_cast<uint16_t>(kUdpHdrLen + payload.size());
-    std::vector<uint8_t> pkt(kPayloadOffset, 0);
+    const uint16_t udp_len = static_cast<uint16_t>(UdpHdrLen + payload.size());
+    std::vector<uint8_t> pkt(PayloadOffset, 0);
 
     // IPv6 header
     std::memcpy(&pkt[0], flow.data(), flow.size());
     put_be16(&pkt[4], udp_len);                  // payload length, excludes this header
     pkt[6] = IPPROTO_UDP;                        // next header
     pkt[7] = 64;                                 // hop limit (never routed)
-    std::memcpy(&pkt[kSrcAddrOffset], src.data(), src.size());
-    std::memcpy(&pkt[kDstAddrOffset], dst.data(), dst.size());
+    std::memcpy(&pkt[SrcAddrOffset], src.data(), src.size());
+    std::memcpy(&pkt[DstAddrOffset], dst.data(), dst.size());
 
     // UDP header (checksum stays 0 until computed below)
-    put_be16(&pkt[kUdpOffset], src_port);
-    put_be16(&pkt[kUdpOffset + 2], dst_port);
-    put_be16(&pkt[kUdpOffset + 4], udp_len);
+    put_be16(&pkt[UdpOffset], src_port);
+    put_be16(&pkt[UdpOffset + 2], dst_port);
+    put_be16(&pkt[UdpOffset + 4], udp_len);
 
     pkt.insert(pkt.end(), payload.begin(), payload.end());
 
-    // The UDP checksum covers an IPv6 pseudo-header (addresses, length, next
+    // The UDP checksum covers an IPv6 pseudo header (addresses, length, next
     // header) that is never sent, followed by the UDP header and payload.
     uint8_t pseudo[40] = {};
     std::memcpy(pseudo, src.data(), src.size());
@@ -59,9 +59,9 @@ std::vector<uint8_t> build_packet(const std::array<uint8_t, 4>& flow,
     pseudo[39] = IPPROTO_UDP;
 
     uint32_t sum = checksum_add(pseudo, sizeof(pseudo));
-    sum = checksum_add(&pkt[kUdpOffset], udp_len, sum);
+    sum = checksum_add(&pkt[UdpOffset], udp_len, sum);
     uint16_t check = checksum_fold(sum);
-    put_be16(&pkt[kUdpOffset + 6], check ? check : 0xFFFF);  // 0 is not allowed over IPv6
+    put_be16(&pkt[UdpOffset + 6], check ? check : 0xFFFF);  // 0 is not allowed over IPv6
     return pkt;
 }
 }  // namespace
@@ -85,26 +85,26 @@ bool GuardianPort::solve(PuzzleSession& session) {
         return false;
     }
     std::cerr << "GuardianPort banner: "
-              << std::string(banner.begin() + kPayloadOffset, banner.end()) << "\n";
+              << std::string(banner.begin() + PayloadOffset, banner.end()) << "\n";
 
     std::array<uint8_t, 4> flow;
     std::memcpy(flow.data(), banner.data(), flow.size());
-    Addr their_src = addr_at(banner, kSrcAddrOffset);
-    Addr their_dst = addr_at(banner, kDstAddrOffset);
-    uint16_t their_sport = get_be16(&banner[kUdpOffset]);
-    uint16_t their_dport = get_be16(&banner[kUdpOffset + 2]);
+    Addr their_src = addr_at(banner, SrcAddrOffset);
+    Addr their_dst = addr_at(banner, DstAddrOffset);
+    uint16_t their_sport = get_be16(&banner[UdpOffset]);
+    uint16_t their_dport = get_be16(&banner[UdpOffset + 2]);
 
     auto packet = build_packet(flow, their_dst, their_src, their_dport, their_sport,
                                session.identity_bytes());
 
     // The reply must carry the guardian's original addresses; ignore others.
-    constexpr int kMaxAttempts = 3;
+    constexpr int MaxAttempts = 3;
     std::vector<uint8_t> reply;
-    for (int attempt = 0; attempt < kMaxAttempts && reply.empty(); ++attempt) {
+    for (int attempt = 0; attempt < MaxAttempts && reply.empty(); ++attempt) {
         auto candidate = send_and_receive(packet);
         if (is_wrapped_ipv6(candidate) &&
-            addr_at(candidate, kSrcAddrOffset) == their_src &&
-            addr_at(candidate, kDstAddrOffset) == their_dst) {
+            addr_at(candidate, SrcAddrOffset) == their_src &&
+            addr_at(candidate, DstAddrOffset) == their_dst) {
             reply = candidate;
         }
     }
@@ -113,7 +113,7 @@ bool GuardianPort::solve(PuzzleSession& session) {
         return false;
     }
 
-    session.secret_phrase.assign(reply.begin() + kPayloadOffset, reply.end());
+    session.secret_phrase.assign(reply.begin() + PayloadOffset, reply.end());
     std::cerr << "GuardianPort revealed: " << session.secret_phrase << "\n";
     session.guardian_done = true;
     return true;

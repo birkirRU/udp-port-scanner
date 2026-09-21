@@ -8,8 +8,8 @@ bool DragonPort::identify(const std::string& response) {
 }
 
 // Exchange:
-//   1. Send the two secret ports as ASCII text e.g. ("4033,4012"). The reply is
-//      the ordered list of ports to knock on.
+//   1. Send the two secret ports as ASCII text e.g. ("4033,4012"). The reply is the
+//      ordered list of ports to knock on.
 //   2. Knock on each port with [group_id][sigil] + the Guardian's phrase.
 bool DragonPort::solve(PuzzleSession& session) {
     if (!session.secret_done || !session.evil_done || !session.guardian_done) {
@@ -48,10 +48,10 @@ bool DragonPort::solve(PuzzleSession& session) {
     auto knock_msg = session.identity_bytes();
     knock_msg.insert(knock_msg.end(), phrase.begin(), phrase.end());
 
-    constexpr int kKnockAttempts = 10;
+    constexpr int KnockAttempts = 10;
     for (int port : knocks) {
         PortSender knocker(remote_ip(), port);
-        auto response = knocker.send_and_receive(knock_msg, kKnockAttempts);
+        auto response = knocker.send_and_receive(knock_msg, KnockAttempts);
         if (response.empty()) {
             std::cerr << "DragonPort: no reply from knock on " << port << "\n";
             return false;

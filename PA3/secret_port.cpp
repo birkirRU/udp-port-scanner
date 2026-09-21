@@ -4,10 +4,10 @@
 #include <regex>
 
 namespace {
-const std::vector<std::string> kMemberNames = {"birkirsa24", "bjornth24"};
+const std::vector<std::string> MemberNames = {"birkirsa24", "bjornth24"};
 
-// Our secret number 0x42569243, as the big-endian bytes the server expects.
-const uint8_t kSecret[4] = {0x42, 0x56, 0x92, 0x43};
+// Our secret number 0x42569243, as the big endian bytes the server expects.
+const uint8_t Secret[4] = {0x42, 0x56, 0x92, 0x43};
 }  // namespace
 
 bool SecretPort::identify(const std::string& response) {
@@ -20,9 +20,9 @@ bool SecretPort::identify(const std::string& response) {
 //   3. Send [group_id][sigil]. Reply reveals the hidden port.
 bool SecretPort::solve(PuzzleSession& session) {
     std::string header = "S.E.C.R.E.T.:";
-    for (const auto& name : kMemberNames) header += name + ",";
+    for (const auto& name : MemberNames) header += name + ",";
     std::vector<uint8_t> msg(header.begin(), header.end());
-    msg.insert(msg.end(), kSecret, kSecret + 4);
+    msg.insert(msg.end(), Secret, Secret + 4);
 
     auto reply = send_and_receive(msg);
     if (reply.size() != 5) {
@@ -33,7 +33,7 @@ bool SecretPort::solve(PuzzleSession& session) {
     PuzzleSession found;
     found.group_id = reply[0];
     for (int i = 0; i < 4; ++i) {
-        found.sigil = (found.sigil << 8) | (reply[1 + i] ^ kSecret[i]);
+        found.sigil = (found.sigil << 8) | (reply[1 + i] ^ Secret[i]);
     }
 
     auto secret_reply = send_and_receive(found.identity_bytes());

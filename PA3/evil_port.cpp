@@ -7,8 +7,8 @@
 #include <unistd.h>
 
 namespace {
-constexpr size_t kIpHdrLen = 20;
-constexpr size_t kUdpHdrLen = 8;
+constexpr size_t IpHdrLen = 20;
+constexpr size_t UdpHdrLen = 8;
 
 // Raw IPv4 sockets want ip_len / ip_off in network order on Linux, but in
 // host order on macOS/BSD.
@@ -24,9 +24,9 @@ void put_ip_field(uint8_t* p, uint16_t v) {
 // header ourselves because a normal UDP socket can't set that bit.
 std::vector<uint8_t> build_packet(const sockaddr_in& local, const sockaddr_in& remote,
                                   const std::vector<uint8_t>& payload) {
-    const uint16_t udp_len = static_cast<uint16_t>(kUdpHdrLen + payload.size());
-    const uint16_t total_len = static_cast<uint16_t>(kIpHdrLen + udp_len);
-    std::vector<uint8_t> pkt(kIpHdrLen + kUdpHdrLen, 0);
+    const uint16_t udp_len = static_cast<uint16_t>(UdpHdrLen + payload.size());
+    const uint16_t total_len = static_cast<uint16_t>(IpHdrLen + udp_len);
+    std::vector<uint8_t> pkt(IpHdrLen + UdpHdrLen, 0);
 
     // IPv4 header
     pkt[0] = 0x45;                               // version 4, header length 5 words
@@ -37,7 +37,7 @@ std::vector<uint8_t> build_packet(const sockaddr_in& local, const sockaddr_in& r
     pkt[9] = IPPROTO_UDP;
     std::memcpy(&pkt[12], &local.sin_addr, 4);
     std::memcpy(&pkt[16], &remote.sin_addr, 4);
-    put_be16(&pkt[10], checksum_fold(checksum_add(pkt.data(), kIpHdrLen)));
+    put_be16(&pkt[10], checksum_fold(checksum_add(pkt.data(), IpHdrLen)));
 
     // UDP header (checksum left 0, which is allowed over IPv4). Ports are
     // copied as-is: sockaddr already holds them in network order.
